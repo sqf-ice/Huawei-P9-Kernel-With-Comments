@@ -1278,9 +1278,9 @@ void sync_inode_page(struct dnode_of_data *dn)
 {
 	int ret = 0;
 
-	if (IS_INODE(dn->node_page) || dn->inode_page == dn->node_page) {
-		ret = update_inode(dn->inode, dn->node_page); // 更新Inode所有的信息，包括extent
-	} else if (dn->inode_page) {
+	if (IS_INODE(dn->node_page) || dn->inode_page == dn->node_page) { // 针对inode
+		ret = update_inode(dn->inode, dn->node_page); // 更新inode所有的信息，包括extent
+	} else if (dn->inode_page) { // 针对一般node page
 		if (!dn->inode_page_locked)
 			lock_page(dn->inode_page);
 		ret = update_inode(dn->inode, dn->inode_page);

@@ -284,6 +284,9 @@ int f2fs_submit_page_bio(struct f2fs_io_info *fio)
 	return 0;
 }
 
+/*
+ * 提交一个Bio
+ * */
 void f2fs_submit_page_mbio(struct f2fs_io_info *fio)
 {
 	struct f2fs_sb_info *sbi = fio->sbi;
@@ -299,7 +302,7 @@ void f2fs_submit_page_mbio(struct f2fs_io_info *fio)
 
 	bio_page = fio->encrypted_page ? fio->encrypted_page : fio->page;
 
-	if (fio->old_blkaddr != NEW_ADDR)
+	if (fio->old_blkaddr != NEW_ADDR) // 如果是更新数据
 		verify_block_addr(sbi, fio->old_blkaddr);
 	verify_block_addr(sbi, fio->new_blkaddr);
 
@@ -309,8 +312,7 @@ void f2fs_submit_page_mbio(struct f2fs_io_info *fio)
 		inc_page_count(sbi, F2FS_WRITEBACK);
 
 #ifndef CONFIG_F2FS_FS_ENCRYPTION
-	if (io->bio && (io->last_block_in_bio != fio->new_blkaddr - 1 ||
-						io->fio.rw != fio->rw))
+	if (io->bio && (io->last_block_in_bio != fio->new_blkaddr - 1 || io->fio.rw != fio->rw))
 		__pend_merged_bio(io, &pending_fio, &pending_bio);
 #else
 	if ((io->bio) && ((io->last_block_in_bio != fio->new_blkaddr - 1) ||
@@ -385,15 +387,16 @@ void set_data_blkaddr(struct dnode_of_data *dn)
 	/* Get physical address of data block */
 	addr_array = blkaddr_in_node(rn);
 	addr_array[ofs_in_node] = cpu_to_le32(dn->data_blkaddr);
-	if (set_page_dirty(node_page))
+	if (set_page_dirty(node_page)) // 设置为dirty，会调用mapping->a_ops->set_page_dirty
 		dn->node_changed = true;
 }
+
 
 void f2fs_update_data_blkaddr(struct dnode_of_data *dn, block_t blkaddr)
 {
 	dn->data_blkaddr = blkaddr;
-	set_data_blkaddr(dn);
-	f2fs_update_extent_cache(dn);
+	set_data_blkaddr(dn); // 更新node里面的地址
+	f2fs_update_extent_cache(dn); // 更新extent
 }
 
 
@@ -1485,19 +1488,19 @@ int do_write_data_page(struct f2fs_io_info *fio)
 	int err = 0;
 
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
-	err = get_dnode_of_data(&dn, page->index, LOOKUP_NODE);
+	err = get_dnode_of_data(&dn, page->index, LOOKUP_NODE); // 找到对应的block
 	if (err)
 		return err;
 
-	fio->old_blkaddr = dn.data_blkaddr;
+	fio->old_blkaddr = dn.data_blkaddr; // 旧数据的地址
 
 	/* This page is already truncated */
-	if (fio->old_blkaddr == NULL_ADDR) {
+	if (fio->old_blkaddr == NULL_ADDR) { // 如果旧数据已经被清除了
 		ClearPageUptodate(page);
 		goto out_writepage;
 	}
 
-	if (f2fs_encrypted_inode(inode) && S_ISREG(inode->i_mode)) {
+	if (f2fs_encrypted_inode(inode) && S_ISREG(inode->i_mode)) { // 参考加密的方式
 		gfp_t gfp_flags = GFP_NOFS;
 
 		if (f2fs_do_inline_encrypt(inode) &&
@@ -1535,7 +1538,7 @@ retry_encrypt:
 		}
 	}
 
-	set_page_writeback(page);
+	set_page_writeback(page); // 设置页回写标志
 
 	/*
 	 * If current allocation needs SSR,
@@ -1544,16 +1547,16 @@ retry_encrypt:
 	if (unlikely(fio->old_blkaddr != NEW_ADDR &&
 			!is_cold_data(page) &&
 			!IS_ATOMIC_WRITTEN_PAGE(page) &&
-			need_inplace_update(inode))) {
-		rewrite_data_page(fio);
-		set_inode_flag(F2FS_I(inode), FI_UPDATE_WRITE);
+			need_inplace_update(inode))) { // 就地更新的条件
+		rewrite_data_page(fio); // need_inplace_update定义了原地更新的场景，例如SSR
+		set_inode_flag(F2FS_I(inode), FI_UPDATE_WRITE); // 设置更新的标志
 		trace_f2fs_do_write_data_page(page, IPU);
-	} else {
-		write_data_page(&dn, fio);
+	} else { // 异地更新数据
+		write_data_page(&dn, fio); // 写入这个page
 		trace_f2fs_do_write_data_page(page, OPU);
 		set_inode_flag(F2FS_I(inode), FI_APPEND_WRITE);
 		if (page->index == 0)
-			set_inode_flag(F2FS_I(inode), FI_FIRST_BLOCK_WRITTEN);
+			set_inode_flag(F2FS_I(inode), FI_FIRST_BLOCK_WRITTEN); // 设置这是第一个block，后面还有数据append
 	}
 out_writepage:
 	f2fs_put_dnode(&dn);
@@ -1671,6 +1674,9 @@ redirty_out:
  * This function was copied from write_cche_pages from mm/page-writeback.c.
  * The major change is making write step of cold data page separately from
  * warm/hot data page.
+ *
+ * 写多个缓存页，hot data和warm data分别写
+ *
  */
 static int f2fs_write_cache_pages(struct address_space *mapping,
 					struct writeback_control *wbc)
@@ -1759,7 +1765,7 @@ continue_unlock:
 			if (!clear_page_dirty_for_io(page))
 				goto continue_unlock;
 
-			ret = mapping->a_ops->writepage(page, wbc);
+			ret = mapping->a_ops->writepage(page, wbc); // 最后也是需要write page
 			if (unlikely(ret)) {
 				/*
 				 * keep nr_to_write, since vfs uses this to
@@ -1841,7 +1847,7 @@ static int f2fs_write_data_pages(struct address_space *mapping,
 		locked = true;
 	}
 
-	ret = f2fs_write_cache_pages(mapping, wbc);
+	ret = f2fs_write_cache_pages(mapping, wbc); // 写多个page
 	f2fs_submit_merged_bio_cond(sbi, inode, NULL, 0, DATA, WRITE);
 	if (locked)
 		mutex_unlock(&sbi->writepages);
@@ -2171,6 +2177,9 @@ int f2fs_release_page(struct page *page, gfp_t wait)
 	return 1;
 }
 
+/*
+ * 设置页为脏
+ * */
 static int f2fs_set_data_page_dirty(struct page *page)
 {
 	struct address_space *mapping = page->mapping;

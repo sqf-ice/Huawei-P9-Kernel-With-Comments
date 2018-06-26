@@ -1381,18 +1381,22 @@ static int __get_segment_type_4(struct page *page, enum page_type p_type)
 	}
 }
 
+/*
+ * segment分类
+ * 有6个log的时候的segment类型分类
+ * */
 static int __get_segment_type_6(struct page *page, enum page_type p_type)
 {
 	if (p_type == DATA) {
 		struct inode *inode = page->mapping->host;
 
-		if (S_ISDIR(inode->i_mode))
+		if (S_ISDIR(inode->i_mode)) // 文件夹是HOT DATA
 			return CURSEG_HOT_DATA;
-		else if (is_cold_data(page) || file_is_cold(inode))
+		else if (is_cold_data(page) || file_is_cold(inode)) // 一般是需要gc的data，检查这个page的flag，如果包含这个flag那就是cold data，这个flag也是由文件系统设置的
 			return CURSEG_COLD_DATA;
 		else
-			return CURSEG_WARM_DATA;
-	} else {
+			return CURSEG_WARM_DATA; // 一般数据就是warm data
+	} else { // 针对node
 		if (IS_DNODE(page))
 			return is_cold_node(page) ? CURSEG_WARM_NODE :
 						CURSEG_HOT_NODE;
@@ -1401,9 +1405,12 @@ static int __get_segment_type_6(struct page *page, enum page_type p_type)
 	}
 }
 
+/*
+ * 获取segment的类型
+ * */
 static int __get_segment_type(struct page *page, enum page_type p_type)
 {
-	switch (F2FS_P_SB(page)->active_logs) {
+	switch (F2FS_P_SB(page)->active_logs) { // 一般是6
 	case 2:
 		return __get_segment_type_2(page, p_type);
 	case 4:
@@ -1474,10 +1481,7 @@ void allocate_data_block(struct f2fs_sb_info *sbi, struct page *page,
 static void do_write_page(struct f2fs_summary *sum, struct f2fs_io_info *fio)
 {
 	int type = __get_segment_type(fio->page, fio->type);
-
-	allocate_data_block(fio->sbi, fio->page, fio->old_blkaddr,
-					&fio->new_blkaddr, sum, type);
-
+	allocate_data_block(fio->sbi, fio->page, fio->old_blkaddr, &fio->new_blkaddr, sum, type); // 分配一个新的data block
 	/* writeout dirty page into bdev */
 	f2fs_submit_page_mbio(fio);
 }
@@ -1509,6 +1513,9 @@ void write_node_page(unsigned int nid, struct f2fs_io_info *fio)
 	do_write_page(&sum, fio);
 }
 
+/*
+ * 写一个data page到data block中
+ * */
 void write_data_page(struct dnode_of_data *dn, struct f2fs_io_info *fio)
 {
 	struct f2fs_sb_info *sbi = fio->sbi;
@@ -1516,15 +1523,18 @@ void write_data_page(struct dnode_of_data *dn, struct f2fs_io_info *fio)
 	struct node_info ni;
 
 	f2fs_bug_on(sbi, dn->data_blkaddr == NULL_ADDR);
-	get_node_info(sbi, dn->nid, &ni);
-	set_summary(&sum, dn->nid, dn->ofs_in_node, ni.version);
+	get_node_info(sbi, dn->nid, &ni); // 获取这个page所在的node的info
+	set_summary(&sum, dn->nid, dn->ofs_in_node, ni.version); // 初始化一个summary
 	do_write_page(&sum, fio);
-	f2fs_update_data_blkaddr(dn, fio->new_blkaddr);
+	f2fs_update_data_blkaddr(dn, fio->new_blkaddr); // 更新node里面的block地址，包括设置为dirty，等待写回
 }
 
+/*
+ * 更新数据的模式
+ * */
 void rewrite_data_page(struct f2fs_io_info *fio)
 {
-	fio->new_blkaddr = fio->old_blkaddr;
+	fio->new_blkaddr = fio->old_blkaddr; // 直接使用旧数据的blkaddr，在这个block更新
 	stat_inc_inplace_blocks(fio->sbi);
 	f2fs_submit_page_mbio(fio);
 }
