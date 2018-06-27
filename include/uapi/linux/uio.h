@@ -15,8 +15,8 @@
 
 struct iovec
 {
-	void __user *iov_base;	/* BSD uses caddr_t (1003.1g requires void *) */
-	__kernel_size_t iov_len; /* Must be size_t (1003.1g) */
+	void __user *iov_base;	/* 用户输入的数据起始地址 BSD uses caddr_t (1003.1g requires void *) */
+	__kernel_size_t iov_len; /* 用户输入的需要读/写多少个字节的数据 Must be size_t (1003.1g) */
 };
 
 /*

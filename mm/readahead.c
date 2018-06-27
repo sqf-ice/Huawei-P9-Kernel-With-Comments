@@ -500,7 +500,10 @@ void page_cache_sync_readahead(struct address_space *mapping,
 		return;
 	}
 
-	/* do read-ahead */
+	/*
+	 * do read-ahead
+	 * 进行readahead
+	 * */
 	ondemand_readahead(mapping, ra, filp, false, offset, req_size);
 }
 EXPORT_SYMBOL_GPL(page_cache_sync_readahead);

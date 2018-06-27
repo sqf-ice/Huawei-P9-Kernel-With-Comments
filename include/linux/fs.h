@@ -334,8 +334,8 @@ struct writeback_control;
 #define IOCB_DIRECT		(1 << 2)
 
 struct kiocb {
-	struct file		*ki_filp;
-	loff_t			ki_pos;
+	struct file		*ki_filp; // 需要操作的file
+	loff_t			ki_pos;   // 读写文件偏移
 	void (*ki_complete)(struct kiocb *iocb, long ret, long ret2);
 	void			*private;
 	int			ki_flags;

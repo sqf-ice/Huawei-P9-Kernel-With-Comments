@@ -559,7 +559,8 @@ got:
  * 这个函数是根据index做预处理函数，不然没有node page给data写入。
  *    主要流程：
  *    ALLOC模式:
- *       用来在写入data之前创建indirect node和double indirect node或者triple indirect node的node page
+ *    	 1. 如果不需要direct node，那就直接返回f2fs_inode->i_addr[index]对应的block地址
+ *    	 2. 如果需要direct_node以上(block数目>923)，那就先创建该node page，然后再返回该node page包含的datablock[index-923]或者datablock[index-1018-923](取决于用了多少个block)
  *    READAHEAD模式:
  *       用来针对level>2的情况的预读，简单来说就是读取index所在的node page和blkdata
  *

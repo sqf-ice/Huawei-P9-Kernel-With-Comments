@@ -358,6 +358,7 @@ int FG_GC_count = 0;
 /*
  * This function balances dirty node and dentry pages.
  * In addition, it controls garbage collection.
+ * 控制一下数目，如果section不够用，就做一下gc
  */
 void f2fs_balance_fs(struct f2fs_sb_info *sbi, bool need)
 {
@@ -367,8 +368,8 @@ void f2fs_balance_fs(struct f2fs_sb_info *sbi, bool need)
 	 * We should do GC or end up with checkpoint, if there are so many dirty
 	 * dir/node pages without enough free segments.
 	 */
-	if (has_not_enough_free_secs(sbi, 0)) {
-		if ((FG_GC_count++ % 100) == 0) {
+	if (has_not_enough_free_secs(sbi, 0)) { // 是否section不够用
+		if ((FG_GC_count++ % 100) == 0) { // 打印信息
 			f2fs_msg(sbi->sb, KERN_WARNING,
 			"FG_GC: Size=%lldMB,Free=%lldMB,count=%d,free_sec=%d,reserved_sec=%d,node_secs=%d,dent_secs=%d\n",
 			(le64_to_cpu(sbi->user_block_count) * sbi->blocksize) /1024/1024,
@@ -379,7 +380,7 @@ void f2fs_balance_fs(struct f2fs_sb_info *sbi, bool need)
 
 		mutex_lock(&sbi->gc_mutex);
 		/*lint -save -e747*/
-		f2fs_gc(sbi, false, false);
+		f2fs_gc(sbi, false, false); // 做一下gc
 		/*lint -restore*/
 	}
 }
@@ -1623,12 +1624,12 @@ void f2fs_replace_block(struct f2fs_sb_info *sbi, struct dnode_of_data *dn,
 
 void f2fs_wait_on_page_writeback(struct page *page, enum page_type type, bool ordered)
 {
-	if (PageWriteback(page)) {
+	if (PageWriteback(page)) { // 如果页面有page writeback标志
 		struct f2fs_sb_info *sbi = F2FS_P_SB(page);
 
-		f2fs_submit_merged_bio_cond(sbi, NULL, page, 0, type, WRITE);
+		f2fs_submit_merged_bio_cond(sbi, NULL, page, 0, type, WRITE); // 提交sbi里面的部分信息
 		if (ordered)
-			wait_on_page_writeback(page); // 进行页回写
+			wait_on_page_writeback(page); // 进行页回写完成
 		else
 			wait_for_stable_page(page);
 	}

@@ -543,6 +543,9 @@ static unsigned int f2fs_update_extent_tree_range(struct inode *inode,
 	return !__is_extent_same(&prev, &et->largest);
 }
 
+/*
+ * 做extent cache回收
+ * */
 unsigned int f2fs_shrink_extent_tree(struct f2fs_sb_info *sbi, int nr_shrink)
 {
 	struct extent_tree *et, *next;

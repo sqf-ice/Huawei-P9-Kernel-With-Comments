@@ -1943,7 +1943,7 @@ static ssize_t f2fs_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	if (ret > 0) {
 		ret = f2fs_preallocate_blocks(iocb, from); // 针对非inline inode的文件进行初始化部分data block
 		if (!ret)
-			ret = __generic_file_write_iter(iocb, from);
+			ret = __generic_file_write_iter(iocb, from); // 调用vfs写入函数
 	}
 	inode_unlock(inode);
 

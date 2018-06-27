@@ -1512,21 +1512,21 @@ static ssize_t do_generic_file_read(struct file *filp, loff_t *ppos,
 
 		cond_resched();
 find_page:
-		page = find_get_page(mapping, index);
-		if (!page) {
+		page = find_get_page(mapping, index);// 从缓存找这个page
+		if (!page) { // 如果找不到
 			page_cache_sync_readahead(mapping,
 					ra, filp,
-					index, last_index - index);
+					index, last_index - index); // readahead机制，一次性将需要请求的page，全部读取出来
 			page = find_get_page(mapping, index);
 			if (unlikely(page == NULL))
 				goto no_cached_page;
 		}
-		if (PageReadahead(page)) {
+		if (PageReadahead(page)) { // 如果这个page有readahead标志
 			page_cache_async_readahead(mapping,
 					ra, filp, page,
 					index, last_index - index);
 		}
-		if (!PageUptodate(page)) {
+		if (!PageUptodate(page)) { // page仍然不是最新的
 			if (inode->i_blkbits == PAGE_CACHE_SHIFT ||
 					!mapping->a_ops->is_partially_uptodate)
 				goto page_not_up_to_date;
@@ -1631,7 +1631,10 @@ readpage:
 		 * PG_error will be set again if readpage fails.
 		 */
 		ClearPageError(page);
-		/* Start the actual read. The read will unlock the page. */
+		/*
+		 * Start the actual read. The read will unlock the page.
+		 * 读一个page
+		 * */
 		error = mapping->a_ops->readpage(filp, page);
 
 		if (unlikely(error)) {
@@ -1676,13 +1679,13 @@ no_cached_page:
 		 * Ok, it wasn't cached, so we need to create a new
 		 * page..
 		 */
-		page = page_cache_alloc_cold(mapping);
+		page = page_cache_alloc_cold(mapping); // 分配一个新oage
 		if (!page) {
 			error = -ENOMEM;
 			goto out;
 		}
 		error = add_to_page_cache_lru(page, mapping,
-						index, GFP_KERNEL);
+						index, GFP_KERNEL); // 加入到lru链表
 		if (error) {
 			page_cache_release(page);
 			if (error == -EEXIST) {
@@ -2481,9 +2484,8 @@ ssize_t generic_perform_write(struct file *file,
 		size_t copied;		/* Bytes copied from user */
 		void *fsdata;
 
-		offset = (pos & (PAGE_CACHE_SIZE - 1));
-		bytes = min_t(unsigned long, PAGE_CACHE_SIZE - offset,
-						iov_iter_count(i));
+		offset = (pos & (PAGE_CACHE_SIZE - 1)); // 文件读写起始偏移
+		bytes = min_t(unsigned long, PAGE_CACHE_SIZE - offset, iov_iter_count(i)); //计算读某个页里面的offset开始iov_iter_count(i)的数据
 
 again:
 		/*
@@ -2513,7 +2515,7 @@ again:
 		if (mapping_writably_mapped(mapping))
 			flush_dcache_page(page);
 
-		copied = iov_iter_copy_from_user_atomic(page, i, offset, bytes);
+		copied = iov_iter_copy_from_user_atomic(page, i, offset, bytes); // 将用户数据写入到write_begin返回的page当中
 		flush_dcache_page(page);
 
 		status = a_ops->write_end(file, mapping, pos, bytes, copied, page, fsdata);
@@ -2584,10 +2586,10 @@ ssize_t __generic_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	if (err)
 		goto out;
 
-	if (iocb->ki_flags & IOCB_DIRECT) {
+	if (iocb->ki_flags & IOCB_DIRECT) { // 如果是direct IO，
 		loff_t pos, endbyte;
 
-		written = generic_file_direct_write(iocb, from, iocb->ki_pos);
+		written = generic_file_direct_write(iocb, from, iocb->ki_pos); // 写文件系统的direct io函数
 		/*
 		 * If the write stopped short of completing, fall back to
 		 * buffered writes.  Some filesystems do this for writes to

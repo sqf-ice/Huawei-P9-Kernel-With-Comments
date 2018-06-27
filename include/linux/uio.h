@@ -26,15 +26,15 @@ enum {
 };
 
 struct iov_iter {
-	int type;
-	size_t iov_offset;
-	size_t count;
+	int type; // 读还是写
+	size_t iov_offset; // 一般是0
+	size_t count; // 读写多少个字节
 	union {
-		const struct iovec *iov;
+		const struct iovec *iov; //
 		const struct kvec *kvec;
 		const struct bio_vec *bvec;
 	};
-	unsigned long nr_segs;
+	unsigned long nr_segs; // 一般是1
 };
 
 /*

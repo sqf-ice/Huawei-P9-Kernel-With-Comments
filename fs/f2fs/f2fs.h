@@ -614,7 +614,7 @@ struct dnode_of_data {
 	nid_t nid;			/*  node_page对应的nid */
 	unsigned int ofs_in_node;	/* data offset in the node page 注意：node_page + ofs_in_node就是data_blkaddr所在的位置 */
 	bool inode_page_locked;		/* inode page is locked or not */
-	bool node_changed;		/* is node block changed */
+	bool node_changed;		/* 一般针对inline data的标志，因为将inline node转换为normal node需要对node里面的数据进行转换 is node block changed */
 	char cur_level;			/* level of hole node page */
 	char max_level;			/* level of current page located */
 	block_t	data_blkaddr;		/* block address of the node block */

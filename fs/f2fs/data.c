@@ -421,6 +421,9 @@ int reserve_new_block(struct dnode_of_data *dn)
 	return 0;
 }
 
+/*
+ * 创建一个index所在的data block
+ * */
 int f2fs_reserve_block(struct dnode_of_data *dn, pgoff_t index)
 {
 	bool need_put = dn->inode_page ? false : true; // 是否需要该node page释放
@@ -438,12 +441,15 @@ int f2fs_reserve_block(struct dnode_of_data *dn, pgoff_t index)
 	return err;
 }
 
+/*
+ * 获取index所在的data block地址
+ * */
 int f2fs_get_block(struct dnode_of_data *dn, pgoff_t index)
 {
 	struct extent_info ei;
 	struct inode *inode = dn->inode;
 
-	if (f2fs_lookup_extent_cache(inode, index, &ei)) {
+	if (f2fs_lookup_extent_cache(inode, index, &ei)) { // 如果没有extent cache
 		dn->data_blkaddr = ei.blk + index - ei.fofs;
 		return 0;
 	}
@@ -764,7 +770,7 @@ int f2fs_map_blocks(struct inode *inode, struct f2fs_map_blocks *map, int create
 	}
 
 	/* it only supports block size == page size */
-	pgofs =	(pgoff_t)map->m_lblk; // 根据文件写入数据的byte offset, 计算出来的page offset在
+	pgofs =	(pgoff_t)map->m_lblk; // 文件中的第几个block
 
 
 	// 如果不是create创建，只是查这个inode对应的extent，extent就是READAHEAD的结构
@@ -1874,6 +1880,18 @@ static void f2fs_write_failed(struct address_space *mapping, loff_t to)
 	}
 }
 
+/*
+ * f2fs_write_begin调用这个函数
+ *
+ * page: 传入一个已经初始化，但是没有数据的page
+ * pos：读写开始位置offset
+ * len：读取多长的数据
+ * blk_addr: 传入的是一个NULL_ADDR，返回一个包含了block具体地址的blk_addr
+ * node_changed: node的信息是否改变了
+ * 作用：
+ * 1. 如果是inline data，那么need_balance=true，同时page也会填充对应的数据
+ * 2. 如果不是inline data，那么blkaddr就会被填充，用于做下一步处理
+ * */
 static int prepare_write_begin(struct f2fs_sb_info *sbi,
 			struct page *page, loff_t pos, unsigned len,
 			block_t *blk_addr, bool *node_changed)
@@ -1894,14 +1912,14 @@ static int prepare_write_begin(struct f2fs_sb_info *sbi,
 					len == PAGE_CACHE_SIZE)
 		return 0;
 
-	if (f2fs_has_inline_data(inode) ||
-			(pos & PAGE_CACHE_MASK) >= i_size_read(inode)) {
+	// 如果含有inline data或者偏移量pos大于文件的尺寸(需要增加新的block)
+	if (f2fs_has_inline_data(inode) || (pos & PAGE_CACHE_MASK) >= i_size_read(inode)) {
 		f2fs_lock_op(sbi);
 		locked = true;
 	}
 restart:
 	/* check inline_data */
-	ipage = get_node_page(sbi, inode->i_ino);
+	ipage = get_node_page(sbi, inode->i_ino); // 获得这个node page
 	if (IS_ERR(ipage)) {
 		err = PTR_ERR(ipage);
 		goto unlock_out;
@@ -1909,25 +1927,25 @@ restart:
 
 	set_new_dnode(&dn, inode, ipage, ipage, 0);
 
-	if (f2fs_has_inline_data(inode)) {
-		if (pos + len <= MAX_INLINE_DATA) {
-			read_inline_data(page, ipage);
+	if (f2fs_has_inline_data(inode)) { // 针对inline data的node
+		if (pos + len <= MAX_INLINE_DATA) { // 原本的尺寸+写入尺寸少于MAX_INLINE_DATA
+			read_inline_data(page, ipage); // 读取inline data到page
 			set_inode_flag(F2FS_I(inode), FI_DATA_EXIST);
-		} else {
+		} else { // 大于inlne data，就转换为一般的node，然后走常规流程
 			err = f2fs_convert_inline_page(&dn, page);
 			if (err)
 				goto out;
 			if (dn.data_blkaddr == NULL_ADDR)
-				err = f2fs_get_block(&dn, index);
+				err = f2fs_get_block(&dn, index); // 将对应的block更新为新的block
 		}
-	} else if (locked) {
-		err = f2fs_get_block(&dn, index);
-	} else {
+	} else if (locked) { // 根据f2fs_has_inline_data(inode) || (pos & PAGE_CACHE_MASK) >= i_size_read(inode)这个条件，所以这里是处理超过append的情况的写
+		err = f2fs_get_block(&dn, index); // 分配新的block
+	} else { // 更新数据(不增加data block)
 		if (f2fs_lookup_extent_cache(inode, index, &ei)) {
 			dn.data_blkaddr = ei.blk + index - ei.fofs;
 		} else {
 			/* hole case */
-			err = get_dnode_of_data(&dn, index, LOOKUP_NODE);
+			err = get_dnode_of_data(&dn, index, LOOKUP_NODE); // 查找该index对应的data block
 			if (err || (!err && dn.data_blkaddr == NULL_ADDR)) {
 				f2fs_put_dnode(&dn);
 				f2fs_lock_op(sbi);
@@ -1948,6 +1966,16 @@ unlock_out:
 	return err;
 }
 
+/*
+ * pos：读写开始位置offset
+ * len：读取多长的数据
+ * pagep: 传入一个空的page的指针，如果是更新数据，那么就返回原来对应位置的page，如果是添加数据，那就返回一个初始化为0的page
+ * fsdata：传入一个空的fsdata指针，f2fs用不上这个，估计可以直接返回数据之类的
+ *
+ * 作用：如果是更新数据，那就读出pos对应位置的block的数据，返回出去
+ *      如果是append数据，那就在pos对应的位置新建一个block，将这个block对应的page初始化化为0,然后返回出去
+ *
+ * */
 static int f2fs_write_begin(struct file *file, struct address_space *mapping,
 		loff_t pos, unsigned len, unsigned flags,
 		struct page **pagep, void **fsdata)
@@ -1955,9 +1983,9 @@ static int f2fs_write_begin(struct file *file, struct address_space *mapping,
 	struct inode *inode = mapping->host;
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	struct page *page = NULL;
-	pgoff_t index = ((unsigned long long) pos) >> PAGE_CACHE_SHIFT;
+	pgoff_t index = ((unsigned long long) pos) >> PAGE_CACHE_SHIFT; // 计算属于f2fs_inode里面的第几个block
 	bool need_balance = false;
-	block_t blkaddr = NULL_ADDR;
+	block_t blkaddr = NULL_ADDR; // blkaddr地址
 	int err = 0;
 
 	trace_f2fs_write_begin(inode, pos, len, flags);
@@ -1967,13 +1995,13 @@ static int f2fs_write_begin(struct file *file, struct address_space *mapping,
 	 * and #0 page. The locking rule for inline_data conversion should be:
 	 * lock_page(page #0) -> lock_page(inode_page)
 	 */
-	if (index != 0) {
+	if (index != 0) { // 如果不是0,那肯定不是inline node
 		err = f2fs_convert_inline_inode(inode);
 		if (err)
 			goto fail;
 	}
 repeat:
-	page = grab_cache_page_write_begin(mapping, index, flags);
+	page = grab_cache_page_write_begin(mapping, index, flags); // 创建一个page对象
 	if (!page) {
 		err = -ENOMEM;
 		goto fail;
@@ -1981,14 +2009,18 @@ repeat:
 
 	*pagep = page;
 
-	err = prepare_write_begin(sbi, page, pos, len,
-					&blkaddr, &need_balance);
+	/*
+	 * 1. 如果是inline data，那么need_balance=true，同时page也会填充对应的数据
+	 * 2. 如果不是inline data，那么blkaddr就会被填充，用于做下一步处理
+	 * */
+	err = prepare_write_begin(sbi, page, pos, len, &blkaddr, &need_balance);
+
 	if (err)
 		goto fail;
 
-	if (need_balance && has_not_enough_free_secs(sbi, 0)) {
+	if (need_balance && has_not_enough_free_secs(sbi, 0)) { // 如果完成了inline node的转变，同时没有足够的section
 		unlock_page(page);
-		f2fs_balance_fs(sbi, true);
+		f2fs_balance_fs(sbi, true); // 平衡一下文件系统
 		lock_page(page);
 		if (page->mapping != mapping) {
 			/* The page got truncated from under us */
@@ -2003,23 +2035,24 @@ repeat:
 	if (f2fs_encrypted_inode(inode) && S_ISREG(inode->i_mode))
 		f2fs_wait_on_encrypted_page_writeback(sbi, blkaddr);
 
-	if (len == PAGE_CACHE_SIZE)
+	if (len == PAGE_CACHE_SIZE) // 看不懂这个操作？
 		goto out_update;
 	if (PageUptodate(page))
 		goto out_clear;
 
-	if ((pos & PAGE_CACHE_MASK) >= i_size_read(inode)) {
+	if ((pos & PAGE_CACHE_MASK) >= i_size_read(inode)) { // 如果是新增加空间
 		unsigned start = pos & (PAGE_CACHE_SIZE - 1);
 		unsigned end = start + len;
 
 		/* Reading beyond i_size is simple: memset to zero */
-		zero_user_segments(page, 0, start, end, PAGE_CACHE_SIZE);
+		zero_user_segments(page, 0, start, end, PAGE_CACHE_SIZE); // 先初始化这个page的数据0
 		goto out_update;
 	}
 
+
 	if (blkaddr == NEW_ADDR) {
 		zero_user_segment(page, 0, PAGE_CACHE_SIZE);
-	} else {
+	} else { // 如果是更新以前的数据，那么先从磁盘读取以前的数据出来，保存到page中
 		struct bio *bio;
 
 		/*lint -save -e712*/
@@ -2062,6 +2095,16 @@ fail:
 	return err;
 }
 
+/*
+ * pos：读写开始位置offset
+ * len：读取多长的数据
+ * page: 传入的是已经修改过的page
+ * copied: 复制了多少数据，len=copied
+ * fsdata：传入一个空的fsdata指针，f2fs用不上这个，估计可以直接返回数据之类的
+ *
+ * 作用：将page和inode mark成dirty，更新inode的修改时间
+ *
+ * */
 static int f2fs_write_end(struct file *file,
 			struct address_space *mapping,
 			loff_t pos, unsigned len, unsigned copied,
@@ -2071,16 +2114,16 @@ static int f2fs_write_end(struct file *file,
 
 	trace_f2fs_write_end(inode, pos, len, copied);
 
-	set_page_dirty(page);
+	set_page_dirty(page); // 设置为dirty
 
 	if (pos + copied > i_size_read(inode)) {
-		i_size_write(inode, pos + copied);
+		i_size_write(inode, pos + copied); // 更新Inode的size
 		set_inode_flag(F2FS_I(inode), FI_ISIZE_CHANGED);
 		mark_inode_dirty(inode);
 	}
 
 	f2fs_put_page(page, 1);
-	f2fs_update_time(F2FS_I_SB(inode), REQ_TIME);
+	f2fs_update_time(F2FS_I_SB(inode), REQ_TIME); // 更新每一次请求的时间?
 	return copied;
 }
 
