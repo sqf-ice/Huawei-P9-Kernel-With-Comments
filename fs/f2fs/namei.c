@@ -24,7 +24,9 @@
 #include <trace/events/f2fs.h>
 
 /*
- * 创建一个新的inode
+ * 1. 走vfs创建一个新的inode
+ * 2. 根据条件设置inline标志
+ * 3. 初始化extent tree
  * */
 static struct inode *f2fs_new_inode(struct inode *dir, umode_t mode)
 {
@@ -64,6 +66,7 @@ static struct inode *f2fs_new_inode(struct inode *dir, umode_t mode)
 	if (f2fs_encrypted_inode(dir) && f2fs_may_encrypt(inode))
 		f2fs_set_encrypted_inode(inode);
 
+	// 是否包含inline data
 	if (test_opt(sbi, INLINE_DATA) && f2fs_may_inline_data(inode))
 		set_inode_flag(F2FS_I(inode), FI_INLINE_DATA);
 	if (f2fs_may_inline_dentry(inode))
@@ -129,9 +132,14 @@ static inline void set_cold_files(struct f2fs_sb_info *sbi, struct inode *inode,
 	}
 }
 
-// f2fs_dir_inode_operations调用
-static int f2fs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
-						bool excl)
+/*
+ * inode创建文件或者dentry的时候使用
+ * inode:需要创建的inode，一般是NULL
+ * dentry: 也是NULL
+ * mode: 模式
+ * excl：是否是可执行
+ * */
+static int f2fs_create(struct inode *dir, struct dentry *dentry, umode_t mode, bool excl)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(dir);
 	struct inode *inode;
@@ -153,7 +161,7 @@ static int f2fs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 	f2fs_balance_fs(sbi, true);
 
 	f2fs_lock_op(sbi);
-	err = f2fs_add_link(dentry, inode);
+	err = f2fs_add_link(dentry, inode); // 建立dentry和inode的关系
 	if (err)
 		goto out;
 	f2fs_unlock_op(sbi);

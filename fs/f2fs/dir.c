@@ -455,6 +455,9 @@ static int make_empty_dir(struct inode *inode,
 	return 0;
 }
 
+/*
+ * 初始化inode相关的metadata
+ * */
 struct page *init_inode_metadata(struct inode *inode, struct inode *dir,
 			const struct qstr *new_name, const struct qstr *orig_name,
 			struct page *dpage)
@@ -463,24 +466,27 @@ struct page *init_inode_metadata(struct inode *inode, struct inode *dir,
 	int err;
 
 	if (is_inode_flag_set(F2FS_I(inode), FI_NEW_INODE)) {
-		page = new_inode_page(inode);
+		page = new_inode_page(inode); // 创建f2fs_inode结构
 		if (IS_ERR(page))
 			return page;
 
-		if (S_ISDIR(inode->i_mode)) {
+		if (S_ISDIR(inode->i_mode)) { // 如果是目录，则分配dentry
 			err = make_empty_dir(inode, dir, page);
 			if (err)
 				goto error;
 		}
 
+		// 设置文件访问权限
 		err = f2fs_init_acl(inode, dir, page, dpage);
 		if (err)
 			goto put_error;
 
+		// 安全相关的
 		err = f2fs_init_security(inode, dir, orig_name, page);
 		if (err)
 			goto put_error;
 
+		// 加密这个Inode
 		if (f2fs_encrypted_inode(dir) && f2fs_may_encrypt(inode)) {
 			err = fscrypt_inherit_context(dir, inode, page, false);
 			if (err)

@@ -1315,6 +1315,9 @@ struct bio *f2fs_grab_bio(struct inode *inode, block_t blkaddr,
  * This function was originally taken from fs/mpage.c, and customized for f2fs.
  * Major change was from block_size == page_size in f2fs by default.
  *
+ * pages: 用于保存数据的page list，读取多个页的时候使用，如果读取一个页，这个值是NULL
+ * page: 用于保存单个数据的page，读取一个页的时候使用，如果读去多个页，那这个值初始是NULL，函数内被用来做临时变量
+ * nr_pages: 需要读取多少个page
  * 流程：
  * 		1. 计算起始的位置，然后需要读取页的个数
  * 		2. 通过f2fs_map_blocks函数->找到这个inode对应的f2fs_node->找到f2fs_inode或者direct node或者indirect node，然后读取这个data page所在的地址
@@ -1348,7 +1351,7 @@ static int f2fs_mpage_readpages(struct address_space *mapping,
 		prefetchw(&page->flags);
 
 		if (pages) {
-			page = list_entry(pages->prev, struct page, lru); // 从page_list取出一个page
+			page = list_entry(pages->prev, struct page, lru); //  从page_list取出一个page
 			list_del(&page->lru);
 			if (add_to_page_cache_lru(page, mapping, page->index, GFP_KERNEL)) // 将这个page加入到缓存lru链表
 				goto next_page; // 如果加入lru链表失败了，那就跳到一下个循环
@@ -1366,9 +1369,7 @@ static int f2fs_mpage_readpages(struct address_space *mapping,
 		 * (map.m_flags & F2FS_MAP_MAPPED):表示已经map过了
 		 * (block_in_file > map.m_lblk && block_in_file < (map.m_lblk + map.m_len)):表示块号是否大于起始逻辑地址，小于最后一个逻辑地址，如果满足即可以直接通过当前map开始读
 		 */
-		if ((map.m_flags & F2FS_MAP_MAPPED) &&
-				block_in_file > map.m_lblk &&
-				block_in_file < (map.m_lblk + map.m_len))
+		if ((map.m_flags & F2FS_MAP_MAPPED) && block_in_file > map.m_lblk && block_in_file < (map.m_lblk + map.m_len))
 			goto got_it;
 
 		/*
@@ -1422,8 +1423,8 @@ submit_and_realloc:
 				goto set_error_page;
 		}
 
-		if (bio_add_page(bio, page, blocksize, 0) < blocksize) // 将多个页面加入到bio vector
-			goto submit_and_realloc; //如果失败了
+		if (bio_add_page(bio, page, blocksize, 0) < blocksize) // 将多个页面加入到bio vector，成功会返回加入了page的数目
+			goto submit_and_realloc; //如果分配成功
 
 		last_block_in_bio = block_nr; // 要读取的block的总块数
 		last_index_in_bio = block_in_file; //最后的block的块号
@@ -1442,7 +1443,7 @@ confused:
 next_page:
 		if (pages)
 			page_cache_release(page); // 释放掉这个page
-	}
+	} // end for
 	BUG_ON(pages && !list_empty(pages));
 	if (bio)
 		submit_bio(READ, bio);

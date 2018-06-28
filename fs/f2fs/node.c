@@ -1059,6 +1059,9 @@ int remove_inode_page(struct inode *inode)
 	return 0;
 }
 
+/*
+ * 给一个新的inode分配一个新的f2fs_inode结构
+ * */
 struct page *new_inode_page(struct inode *inode)
 {
 	struct dnode_of_data dn;
@@ -1072,8 +1075,8 @@ struct page *new_inode_page(struct inode *inode)
 
 
 /*
- * 处理一个新的node page
- *
+ * 如果ipage是空：根据dnode_of_data的信息分配一个f2fs_inode结构
+ * 如果ipage不是空：根据dnode_of_data的信息更新数据
  * */
 struct page *new_node_page(struct dnode_of_data *dn, unsigned int ofs, struct page *ipage)
 {
