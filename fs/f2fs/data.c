@@ -1703,6 +1703,7 @@ static int f2fs_write_cache_pages(struct address_space *mapping,
 
 	pagevec_init(&pvec, 0);
 next:
+	// 初始化index为start_index
 	if (wbc->range_cyclic) {
 		writeback_index = mapping->writeback_index; /* prev offset */
 		index = writeback_index;
@@ -1718,6 +1719,7 @@ next:
 			range_whole = 1;
 		cycled = 1; /* ignore range_cyclic tests */
 	}
+	// 根据不同的情况设置为不同的tag，这个tag用于在address_space中快速寻找这个这个tag的对象
 	if (wbc->sync_mode == WB_SYNC_ALL || wbc->tagged_writepages)
 		tag = PAGECACHE_TAG_TOWRITE;
 	else
@@ -1728,7 +1730,7 @@ retry:
 	done_index = index;
 	while (!done && (index <= end)) {
 		int i;
-
+		// 读取mapping里面的page cache到pvec中
 		nr_pages = pagevec_lookup_tag(&pvec, mapping, &index, tag,
 			      min(end - index, (pgoff_t)PAGEVEC_SIZE - 1) + 1);
 		if (nr_pages == 0)
@@ -1746,13 +1748,13 @@ retry:
 
 			lock_page(page);
 
-			if (unlikely(page->mapping != mapping)) {
+			if (unlikely(page->mapping != mapping)) { // 不属于这个mapping，那就跳过
 continue_unlock:
 				unlock_page(page);
 				continue;
 			}
 
-			if (!PageDirty(page)) {
+			if (!PageDirty(page)) { // 如果是dirty，代表有人使用，不写回
 				/* someone wrote it for us */
 				goto continue_unlock;
 			}
@@ -1763,7 +1765,7 @@ continue_unlock:
 			if (PageWriteback(page)) {
 				if (wbc->sync_mode != WB_SYNC_NONE)
 					f2fs_wait_on_page_writeback(page,
-								DATA, true);
+								DATA, true); // 如果是sync模式，那就等待一个个页写入到磁盘
 				else
 					goto continue_unlock;
 			}
@@ -1788,15 +1790,16 @@ continue_unlock:
 				break;
 			}
 
+			// 更新一下index数据
 			if (--wbc->nr_to_write <= 0 &&
 			    wbc->sync_mode == WB_SYNC_NONE) {
 				done = 1;
 				break;
 			}
-		}
-		pagevec_release(&pvec);
+		} // end for
+		pagevec_release(&pvec); // 释放资源
 		cond_resched();
-	}
+	} // end while
 
 	if (step < 1) {
 		step++;

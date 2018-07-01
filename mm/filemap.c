@@ -1394,7 +1394,7 @@ unsigned find_get_pages_tag(struct address_space *mapping, pgoff_t *index,
 	rcu_read_lock();
 restart:
 	radix_tree_for_each_tagged(slot, &mapping->page_tree,
-				   &iter, *index, tag) {
+				   &iter, *index, tag) { // 遍历tag=传入tag的pages
 		struct page *page;
 repeat:
 		page = radix_tree_deref_slot(slot);
