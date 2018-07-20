@@ -300,16 +300,16 @@ void f2fs_submit_page_mbio(struct f2fs_io_info *fio)
 
 	io = is_read ? &sbi->read_io : &sbi->write_io[btype];
 
-	bio_page = fio->encrypted_page ? fio->encrypted_page : fio->page;
+	bio_page = fio->encrypted_page ? fio->encrypted_page : fio->page; // 获取需要提交bio的page
 
 	if (fio->old_blkaddr != NEW_ADDR) // 如果是更新数据
-		verify_block_addr(sbi, fio->old_blkaddr);
-	verify_block_addr(sbi, fio->new_blkaddr);
+		verify_block_addr(sbi, fio->old_blkaddr); // 检查地址的合理性
+	verify_block_addr(sbi, fio->new_blkaddr); // 检查地址的合理性
 
 	down_write(&io->io_rwsem);
 
 	if (!is_read)
-		inc_page_count(sbi, F2FS_WRITEBACK);
+		inc_page_count(sbi, F2FS_WRITEBACK); // sbi会收集系统当前的状态，这里的F2FS_WRITEBACK表示正在做writeback的有多少个页，这里+1,表示正在处理wb的页，在write_page_end_io会减1,表示处理完成
 
 #ifndef CONFIG_F2FS_FS_ENCRYPTION
 	if (io->bio && (io->last_block_in_bio != fio->new_blkaddr - 1 || io->fio.rw != fio->rw))
@@ -326,10 +326,10 @@ void f2fs_submit_page_mbio(struct f2fs_io_info *fio)
 
 alloc_new:
 	if (io->bio == NULL) {
-		int bio_blocks = MAX_BIO_BLOCKS(sbi);
+		int bio_blocks = MAX_BIO_BLOCKS(sbi); // 最多一次提交多少个bio
 
 		io->bio = __bio_alloc(sbi, fio->new_blkaddr,
-						bio_blocks, is_read);
+						bio_blocks, is_read); // 初始化Bio的信息
 		io->fio = *fio;
 #ifdef CONFIG_F2FS_FS_ENCRYPTION
 		io->bio->ci_key = fio->ci_key;
@@ -346,13 +346,13 @@ alloc_new:
 #endif
 */
 
-	if (bio_add_page(io->bio, bio_page, PAGE_CACHE_SIZE, 0) <
-							PAGE_CACHE_SIZE) {
-		__pend_merged_bio(io, &pending_fio, &pending_bio);
+	// 将需要提交的page加入到bio当中, 成功应该会返回插入了多少个page的，所以等于0时候哦时fail
+	if (bio_add_page(io->bio, bio_page, PAGE_CACHE_SIZE, 0) < PAGE_CACHE_SIZE) {
+		__pend_merged_bio(io, &pending_fio, &pending_bio); // 这个函数会将io->bio=NULL，因此会到前面重新分配
 		goto alloc_new;
 	}
 
-	io->last_block_in_bio = fio->new_blkaddr;
+	io->last_block_in_bio = fio->new_blkaddr; // 上次处理了哪个bio
 #ifdef CONFIG_F2FS_FS_ENCRYPTION
 	io->last_index_in_bio = bio_page->index;
 #endif
@@ -409,7 +409,7 @@ int reserve_new_block(struct dnode_of_data *dn)
 
 	if (unlikely(is_inode_flag_set(F2FS_I(dn->inode), FI_NO_ALLOC)))
 		return -EPERM;
-	if (unlikely(!inc_valid_block_count(sbi, dn->inode, 1)))
+	if (unlikely(!inc_valid_block_count(sbi, dn->inode, 1))) // 这个操作会增减invalid block，而系统统计使用空间的时候是通过invalid block进行计算的
 		return -ENOSPC;
 
 	trace_f2fs_reserve_new_block(dn->inode, dn->nid, dn->ofs_in_node);
@@ -1545,7 +1545,7 @@ retry_encrypt:
 		}
 	}
 
-	set_page_writeback(page); // 设置页回写标志
+	set_page_writeback(page); // 设置页回写标志，注意这个回写标志设置之后，将会无法被put_page，其实这里不清楚为什么还需要设置这个page，是因为无法区分是否是inline data吗，所以要回写node page
 
 	/*
 	 * If current allocation needs SSR,

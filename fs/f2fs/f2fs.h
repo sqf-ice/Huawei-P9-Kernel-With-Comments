@@ -718,7 +718,7 @@ struct f2fs_sm_info {
  * dirty dentry blocks, dirty node blocks, and dirty meta blocks.
  */
 enum count_type {
-	F2FS_WRITEBACK,
+	F2FS_WRITEBACK, // sbi会收集系统当前的状态，这里的F2FS_WRITEBACK表示正在做writeback的有多少个页，在submit_bio的时候+1,表示正在处理wb的页，在write_page_end_io会减1,表示处理完成
 	F2FS_DIRTY_DENTS,
 	F2FS_DIRTY_DATA,
 	F2FS_DIRTY_NODES,
@@ -893,7 +893,7 @@ struct f2fs_sb_info {
 	block_t discard_blks;			/* discard command candidats */
 	block_t last_valid_block_count;		/* for recovery */
 	u32 s_next_generation;			/* for NFS support */
-	atomic_t nr_pages[NR_COUNT_TYPE];	/* # of pages, see count_type 注意看不同的数组index对应不同的page的数目 */
+	atomic_t nr_pages[NR_COUNT_TYPE];	/* # of pages, see count_type 注意看不同的数组index对应不同的page的数目，收集f2fs系统当前的统计信息 */
 
 	struct f2fs_mount_info mount_opt;	/* mount options */
 

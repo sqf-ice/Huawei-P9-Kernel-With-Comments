@@ -939,7 +939,7 @@ static void __add_sum_entry(struct f2fs_sb_info *sbi, int type, struct f2fs_summ
 {
 	struct curseg_info *curseg = CURSEG_I(sbi, type);
 	void *addr = curseg->sum_blk; // summary block的起始位置，注意summary block和summary是不同的，一个sum blk包含了多个f2fs_summary
-	// 一个f2fs_summary大小是7字节，所以一个summary block可以存储585个，因此维护512个还是没问题的
+	// 一个f2fs_summary大小是7字节，所以一个summary block可以存储585个，因此维护512个(一个segment=512block)还是没问题的
 	addr += curseg->next_blkoff * sizeof(struct f2fs_summary);
 	memcpy(addr, sum, sizeof(struct f2fs_summary)); // 复制summary到summary block的对应位置
 }
@@ -1481,7 +1481,7 @@ void allocate_data_block(struct f2fs_sb_info *sbi, struct page *page,
 
 static void do_write_page(struct f2fs_summary *sum, struct f2fs_io_info *fio)
 {
-	int type = __get_segment_type(fio->page, fio->type);
+	int type = __get_segment_type(fio->page, fio->type); // 获取这个data page是hot或者cold
 	allocate_data_block(fio->sbi, fio->page, fio->old_blkaddr, &fio->new_blkaddr, sum, type); // 分配一个新的data block
 	/* writeout dirty page into bdev */
 	f2fs_submit_page_mbio(fio);
@@ -1527,7 +1527,7 @@ void write_data_page(struct dnode_of_data *dn, struct f2fs_io_info *fio)
 	get_node_info(sbi, dn->nid, &ni); // 获取这个page所在的node的info
 	set_summary(&sum, dn->nid, dn->ofs_in_node, ni.version); // 初始化一个summary
 	do_write_page(&sum, fio);
-	f2fs_update_data_blkaddr(dn, fio->new_blkaddr); // 更新node里面的block地址，包括设置为dirty，等待写回
+	f2fs_update_data_blkaddr(dn, fio->new_blkaddr); // 更新node里面的block地址，包括设置为dirty，等待node的信息写回
 }
 
 /*
