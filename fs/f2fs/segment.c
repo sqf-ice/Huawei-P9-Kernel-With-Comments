@@ -877,12 +877,15 @@ static void update_sit_entry(struct f2fs_sb_info *sbi, block_t blkaddr, int del)
 /*
  * 如果new不是NULL_SEGNO，增加可用的数目
  * 如果是old不是NULL_SEGNO，则减少可用的数目
+ *
+ * 更新valid block和invalid block等信息
+ * 然后将这个segment标志为dirty，gc的get_victim会使用到，用来释放一些invalid的page
  * */
 void refresh_sit_entry(struct f2fs_sb_info *sbi, block_t old, block_t new)
 {
 	update_sit_entry(sbi, new, 1); // 根据new在sit找到对应的seg_entry，然后更新里面的信息
 	if (GET_SEGNO(sbi, old) != NULL_SEGNO)
-		update_sit_entry(sbi, old, -1);
+		update_sit_entry(sbi, old, -1); // 更新valid block和invalid block等信息
 
 	locate_dirty_segment(sbi, GET_SEGNO(sbi, old));
 	locate_dirty_segment(sbi, GET_SEGNO(sbi, new));
@@ -1473,7 +1476,7 @@ void allocate_data_block(struct f2fs_sb_info *sbi, struct page *page,
 
 	mutex_unlock(&sit_i->sentry_lock);
 
-	if (page && IS_NODESEG(type))
+	if (page && IS_NODESEG(type)) // 如果是一般的node，则更新footer
 		fill_node_footer_blkaddr(page, NEXT_FREE_BLKADDR(sbi, curseg)); // 更新footer
 
 	mutex_unlock(&curseg->curseg_mutex);
@@ -1622,9 +1625,12 @@ void f2fs_replace_block(struct f2fs_sb_info *sbi, struct dnode_of_data *dn,
 	f2fs_update_data_blkaddr(dn, new_addr);
 }
 
+/*
+ * 等待这个页写回
+ * */
 void f2fs_wait_on_page_writeback(struct page *page, enum page_type type, bool ordered)
 {
-	if (PageWriteback(page)) { // 如果页面有page writeback标志
+	if (PageWriteback(page)) { // 如果页面有page writeback标志，一般不会直接设置writeback表示，一般设置为dirty然后等待writeback机制设置上writeback标志
 		struct f2fs_sb_info *sbi = F2FS_P_SB(page);
 
 		f2fs_submit_merged_bio_cond(sbi, NULL, page, 0, type, WRITE); // 提交sbi里面的部分信息

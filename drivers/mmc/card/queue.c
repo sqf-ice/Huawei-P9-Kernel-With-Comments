@@ -52,10 +52,14 @@ int mmc_prep_request(struct request_queue *q, struct request *req)
 	return BLKPREP_OK;
 }
 
+
+/*
+ * mmc设备调度设备队列写入磁盘的线程
+ * */
 static int mmc_queue_thread(void *d)
 {
 	struct mmc_queue *mq = d;
-	struct request_queue *q = mq->queue;
+	struct request_queue *q = mq->queue; // 请求队列
 
 	current->flags |= PF_MEMALLOC;
 
@@ -67,14 +71,14 @@ static int mmc_queue_thread(void *d)
 
 		spin_lock_irq(q->queue_lock);
 		set_current_state(TASK_INTERRUPTIBLE);
-		req = blk_fetch_request(q);
+		req = blk_fetch_request(q); // 从设备中取出一个请求
 		mq->mqrq_cur->req = req;
 		spin_unlock_irq(q->queue_lock);
 
 		if (req || mq->mqrq_prev->req) {
 			set_current_state(TASK_RUNNING);
 			cmd_flags = req ? req->cmd_flags : 0;
-			mq->issue_fn(mq, req);
+			mq->issue_fn(mq, req); // 取出的队列，经过一些设置后，被这个issue_fn处理，其实是mmc_blk_issue_rq这个函数
 			if(test_and_clear_bit(MMC_QUEUE_NEW_REQUEST_BIT, &mq->flags))
 				continue; /* fetch again */
 

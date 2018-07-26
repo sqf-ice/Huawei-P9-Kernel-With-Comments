@@ -380,7 +380,7 @@ void set_data_blkaddr(struct dnode_of_data *dn)
 	struct page *node_page = dn->node_page;
 	unsigned int ofs_in_node = dn->ofs_in_node;
 
-	f2fs_wait_on_page_writeback(node_page, NODE, true);
+	f2fs_wait_on_page_writeback(node_page, NODE, true); // 等待页写回
 
 	rn = F2FS_NODE(node_page);
 
@@ -1545,7 +1545,9 @@ retry_encrypt:
 		}
 	}
 
-	set_page_writeback(page); // 设置页回写标志，注意这个回写标志设置之后，将会无法被put_page，其实这里不清楚为什么还需要设置这个page，是因为无法区分是否是inline data吗，所以要回写node page
+	// 设置页回写标志，注意这个回写标志设置之后，将会无法被put_page，其实这里不清楚为什么还需要设置这个page，是因为无法区分是否是inline data吗，所以要回写node page
+	// 但是如果不设置这个标志，就会在f2fs_write_end_io的end_writeback出错
+	set_page_writeback(page);
 
 	/*
 	 * If current allocation needs SSR,

@@ -1319,7 +1319,7 @@ next_step:
 			break;
 
 		for (i = 0; i < nr_pages; i++) {
-			struct page *page = pvec.pages[i];
+			struct page *page = pvec.pages[i]; // 获取第一个page
 
 			if (unlikely(f2fs_cp_error(sbi))) {
 				pagevec_release(&pvec);
@@ -1332,7 +1332,7 @@ next_step:
 			 * 1. dentry dnodes
 			 * 2. file dnodes
 			 */
-			if (step == 0 && IS_DNODE(page))
+			if (step == 0 && IS_DNODE(page)) // 如果 step = 0，同时这个page是一个direct node或者inode，则
 				continue;
 			if (step == 1 && (!IS_DNODE(page) ||
 						is_cold_node(page)))
@@ -1446,6 +1446,10 @@ int wait_on_node_pages_writeback(struct f2fs_sb_info *sbi, nid_t ino)
 	return ret;
 }
 
+
+/*
+ * 写一个node page
+ * */
 static int f2fs_write_node_page(struct page *page,
 				struct writeback_control *wbc)
 {
@@ -1470,7 +1474,7 @@ static int f2fs_write_node_page(struct page *page,
 		goto redirty_out;
 
 	/* get old block addr of this node page */
-	nid = nid_of_node(page);
+	nid = nid_of_node(page); // 获取nid
 	f2fs_bug_on(sbi, page->index != nid);
 
 	if (wbc->for_reclaim) {
@@ -1480,7 +1484,7 @@ static int f2fs_write_node_page(struct page *page,
 		down_read(&sbi->node_write);
 	}
 
-	get_node_info(sbi, nid, &ni);
+	get_node_info(sbi, nid, &ni); // 获取最新的node的信息
 
 	/* This page is already truncated */
 	if (unlikely(ni.blk_addr == NULL_ADDR)) {
@@ -1491,11 +1495,11 @@ static int f2fs_write_node_page(struct page *page,
 		return 0;
 	}
 
-	set_page_writeback(page);
-	fio.old_blkaddr = ni.blk_addr;
-	write_node_page(nid, &fio);
-	set_node_addr(sbi, &ni, fio.new_blkaddr, is_fsync_dnode(page));
-	dec_page_count(sbi, F2FS_DIRTY_NODES);
+	set_page_writeback(page); // 设置回写标志
+	fio.old_blkaddr = ni.blk_addr; // 设置新的地址
+	write_node_page(nid, &fio); // 写page的具体操作
+	set_node_addr(sbi, &ni, fio.new_blkaddr, is_fsync_dnode(page)); // 主要是更新nat_entry里面的blkaddr
+	dec_page_count(sbi, F2FS_DIRTY_NODES); // 减少一个dirty nodes的数目
 	up_read(&sbi->node_write);
 
 	if (wbc->for_reclaim)
@@ -1513,6 +1517,9 @@ redirty_out:
 	return AOP_WRITEPAGE_ACTIVATE;
 }
 
+/*
+ * 写单个node page
+ * */
 static int f2fs_write_node_pages(struct address_space *mapping,
 			    struct writeback_control *wbc)
 {
@@ -1528,7 +1535,7 @@ static int f2fs_write_node_pages(struct address_space *mapping,
 
 	trace_f2fs_writepages(mapping->host, wbc, NODE);
 
-	diff = nr_pages_to_write(sbi, NODE, wbc);
+	diff = nr_pages_to_write(sbi, NODE, wbc); // 计算需要写多少个page
 	wbc->sync_mode = WB_SYNC_NONE;
 	sync_node_pages(sbi, 0, wbc);
 	wbc->nr_to_write = max((long)0, wbc->nr_to_write - diff);

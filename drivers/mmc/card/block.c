@@ -2158,7 +2158,7 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *rqc)
 				break;
 			} else {
 				ret = blk_end_request(req, 0,
-						brq->data.bytes_xfered);
+						brq->data.bytes_xfered); // 通过这个函数结束掉一个完成的request
 			}
 
 			/*
@@ -2293,6 +2293,9 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *rqc)
 	return 0;
 }
 
+/*
+ * 处理mmc设备队列的使用，主要作用是讲request发送到磁盘中
+ * */
 static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 {
 	int ret;
@@ -2344,7 +2347,7 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 			host->context_info.is_waiting_last_req = true;
 			spin_unlock_irqrestore(&host->context_info.lock, flags);
 		}
-		ret = mmc_blk_issue_rw_rq(mq, req);
+		ret = mmc_blk_issue_rw_rq(mq, req); // 主要通过这个函数下发到设备
 	}
 
 out:
