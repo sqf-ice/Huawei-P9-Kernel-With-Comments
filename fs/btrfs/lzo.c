@@ -84,6 +84,15 @@ static inline size_t read_compress_length(char *buf)
 	return le32_to_cpu(dlen);
 }
 
+/*
+ * mapping: 要压缩的inode对应的mapping
+ * total_compressed: 到文件末尾需要压缩多少个页
+ * pages: 新创建的一个page数组，不包含数据
+ * nr_dest_pages: 需要压缩多少个页
+ * nr_pages_ret: 压缩了多少个页
+ * total_in: 初始化是0
+ * max_out: 最多压缩多少个page
+ * */
 static int lzo_compress_pages(struct list_head *ws,
 			      struct address_space *mapping,
 			      u64 start, unsigned long len,
@@ -116,14 +125,14 @@ static int lzo_compress_pages(struct list_head *ws,
 	*total_out = 0;
 	*total_in = 0;
 
-	in_page = find_get_page(mapping, start >> PAGE_CACHE_SHIFT);
+	in_page = find_get_page(mapping, start >> PAGE_CACHE_SHIFT); // 从mapping找到第一个page
 	data_in = kmap(in_page);
 
 	/*
 	 * store the size of all chunks of compressed data in
 	 * the first 4 bytes
 	 */
-	out_page = alloc_page(GFP_NOFS | __GFP_HIGHMEM);
+	out_page = alloc_page(GFP_NOFS | __GFP_HIGHMEM); // 创建一个新的page
 	if (out_page == NULL) {
 		ret = -ENOMEM;
 		goto out;
@@ -137,9 +146,9 @@ static int lzo_compress_pages(struct list_head *ws,
 
 	/* compress at most one page of data each time */
 	in_len = min(len, PAGE_CACHE_SIZE);
-	while (tot_in < len) {
+	while (tot_in < len) { // 遍历需要压缩的页
 		ret = lzo1x_1_compress(data_in, in_len, workspace->cbuf,
-				       &out_len, workspace->mem);
+				       &out_len, workspace->mem); // 进行压缩，注意out_len返回了压缩之后的尺寸
 		if (ret != LZO_E_OK) {
 			printk(KERN_DEBUG "BTRFS: deflate in loop returned %d\n",
 			       ret);
@@ -153,12 +162,12 @@ static int lzo_compress_pages(struct list_head *ws,
 		out_offset += LZO_LEN;
 		pg_bytes_left -= LZO_LEN;
 
-		tot_in += in_len;
+		tot_in += in_len; // +1
 		tot_out += out_len;
 
 		/* copy bytes from the working buffer into the pages */
 		buf = workspace->cbuf;
-		while (out_len) {
+		while (out_len) { // 如果out_len大于零，也就表示压缩成功了
 			bytes = min_t(unsigned long, pg_bytes_left, out_len);
 
 			memcpy(cpage_out + out_offset, buf, bytes);

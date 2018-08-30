@@ -757,6 +757,7 @@ static void move_data_page(struct inode *inode, block_t bidx, int gc_type)
 retry:
 		set_page_dirty(page);
 		f2fs_wait_on_page_writeback(page, DATA, true); // 等待page回写
+
 		if (clear_page_dirty_for_io(page))
 			inode_dec_dirty_pages(inode);
 
@@ -782,6 +783,9 @@ out:
  * modify parent node.
  * If the parent node is not valid or the data block address is different,
  * the victim data block is ignored.
+ *
+ * gc data segment
+ *
  */
 static void gc_data_segment(struct f2fs_sb_info *sbi, struct f2fs_summary *sum, struct gc_inode_list *gc_list, unsigned int segno, int gc_type)
 {
@@ -814,23 +818,23 @@ next_step:
 		if (check_valid_map(sbi, segno, off) == 0) // 如果这个block是valid
 			continue;
 
-		/* 第一次循环　将这个section所有的block预读到sbi->address_space，这里的nid是f2fs_inode */
+		/* 第一次循环　将这个section所有的block预读到sbi->address_space，这里的nid是f2fs_inode，表示着一个块是属于什么node的 */
 		if (phase == 0) {
 			ra_node_page(sbi, le32_to_cpu(entry->nid));
 			continue;
 		}
 
-		/* Get an inode by ino with checking validity */
+		/* 第二、三、四次循环　先检查合法性，，如果不合法的直接跳过，合法的继续下一步*/
 		if (!is_alive(sbi, entry, &dni, start_addr + off, &nofs)) // 查看这个Inode的合法性
 			continue; // 如果不valid，则跳过
 
-		/* 第二次循环　再预读一次，将保存在page_tree当中，这里的*/
+		/* 第二次循环 再预读一次，这次预读的是inode对应的page，将保存在page_tree当中 */
 		if (phase == 1) {
-			ra_node_page(sbi, dni.ino); // 好像dni.ino=entry->nid和上面的一样？
+			ra_node_page(sbi, dni.ino);
 			continue;
 		}
 
-		ofs_in_node = le16_to_cpu(entry->ofs_in_node);// footer->flag?
+		ofs_in_node = le16_to_cpu(entry->ofs_in_node);// 找到对应的ofs_in_node信息
 
 		/* 第三次循环　 */
 		if (phase == 2) {
@@ -845,13 +849,15 @@ next_step:
 			}
 
 			start_bidx = start_bidx_of_node(nofs, inode); // 获取start block index，返回923,923+1018,923+1018*2,923+1018*2+1018~923+1018*2+1018*1018*1018...
+
+			// 获取对应的data page
 			data_page = get_read_data_page(inode, start_bidx + ofs_in_node, READA, true); // 获取start_bidx + ofs_in_node的datablock信息到data page,同时这里也创建了page cache
 			if (IS_ERR(data_page)) {
 				iput(inode);
 				continue;
 			}
 
-			f2fs_put_page(data_page, 0); // 结果这个page
+			f2fs_put_page(data_page, 0); // 结束这个page
 			add_gc_inode(gc_list, inode); // 将需要gc的inode加入到gc_list中
 			continue;
 		}
@@ -887,6 +893,9 @@ static int __get_victim(struct f2fs_sb_info *sbi, unsigned int *victim, int gc_t
 	return ret;
 }
 
+/*
+ * 刚开始的gclist是空的
+ * */
 static int do_garbage_collect(struct f2fs_sb_info *sbi, unsigned int start_segno, struct gc_inode_list *gc_list, int gc_type)
 {
 	struct page *sum_page;
@@ -914,7 +923,9 @@ static int do_garbage_collect(struct f2fs_sb_info *sbi, unsigned int start_segno
 	blk_start_plug(&plug); // 积蓄操作
 
 	// 遍历从start_segno开始的，整个section里面的segment
+	// 一般1 section = 1 segment，因此这个循环只会循环一次
 	for (segno = start_segno; segno < end_segno; segno++) {
+
 		/* find segment summary of victim */
 		sum_page = find_get_page(META_MAPPING(sbi), GET_SUM_BLOCK(sbi, segno)); // 找到segno所在的summary block
 		f2fs_bug_on(sbi, !PageUptodate(sum_page));

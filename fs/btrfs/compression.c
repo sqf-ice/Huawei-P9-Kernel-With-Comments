@@ -288,7 +288,7 @@ static void end_compressed_bio_write(struct bio *bio, int err)
 	 */
 	inode = cb->inode;
 	tree = &BTRFS_I(inode)->io_tree;
-	cb->compressed_pages[0]->mapping = cb->inode->i_mapping;
+	cb->compressed_pages[0]->mapping = cb->inode->i_mapping; //
 	tree->ops->writepage_end_io_hook(cb->compressed_pages[0],
 					 cb->start,
 					 cb->start + cb->len - 1,
@@ -334,7 +334,7 @@ int btrfs_submit_compressed_write(struct inode *inode, u64 start,
 {
 	struct bio *bio = NULL;
 	struct btrfs_root *root = BTRFS_I(inode)->root;
-	struct compressed_bio *cb;
+	struct compressed_bio *cb; // 创建一个专用的compressed_bio，然后保存到bio->bi_private中。
 	unsigned long bytes_left;
 	struct extent_io_tree *io_tree = &BTRFS_I(inode)->io_tree;
 	int pg_index = 0;
@@ -361,7 +361,7 @@ int btrfs_submit_compressed_write(struct inode *inode, u64 start,
 
 	bdev = BTRFS_I(inode)->root->fs_info->fs_devices->latest_bdev;
 
-	bio = compressed_bio_alloc(bdev, first_byte, GFP_NOFS);
+	bio = compressed_bio_alloc(bdev, first_byte, GFP_NOFS); // 分配一个bio
 	if (!bio) {
 		kfree(cb);
 		return -ENOMEM;
@@ -384,7 +384,7 @@ int btrfs_submit_compressed_write(struct inode *inode, u64 start,
 
 		page->mapping = NULL;
 		if (ret || bio_add_page(bio, page, PAGE_CACHE_SIZE, 0) <
-		    PAGE_CACHE_SIZE) {
+		    PAGE_CACHE_SIZE) { // 将page加到bio中
 			bio_get(bio);
 
 			/*
@@ -400,7 +400,7 @@ int btrfs_submit_compressed_write(struct inode *inode, u64 start,
 
 			if (!skip_sum) {
 				ret = btrfs_csum_one_bio(root, inode, bio,
-							 start, 1);
+							 start, 1); // 这里提交bio
 				BUG_ON(ret); /* -ENOMEM */
 			}
 
@@ -879,6 +879,16 @@ static void free_workspaces(void)
  *
  * max_out tells us the max number of bytes that we're allowed to
  * stuff into pages
+ *
+ *
+ * type: 压缩工具的类型
+ * mapping: 要压缩的inode对应的mapping
+ * total_compressed: 到文件末尾需要压缩多少个页
+ * pages: 新创建的一个page数组，不包含数据
+ * nr_dest_pages: 需要压缩多少个页
+ * nr_pages_ret: 压缩了多少个页
+ * total_in: 初始化是0
+ * max_out: 最多压缩多少个page
  */
 int btrfs_compress_pages(int type, struct address_space *mapping,
 			 u64 start, unsigned long len,

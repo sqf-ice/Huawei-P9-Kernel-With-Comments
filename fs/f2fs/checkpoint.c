@@ -981,6 +981,11 @@ static void wait_on_all_pages_writeback(struct f2fs_sb_info *sbi)
 	#endif
 }
 
+
+/*
+ * 进行checkpoint的主要函数
+ * 大部分情况都会被write_checkpoint所调用
+ * */
 static int do_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 {
 	struct f2fs_checkpoint *ckpt = F2FS_CKPT(sbi);
@@ -1191,7 +1196,8 @@ static int do_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 
 /*
  * We guarantee that this checkpoint procedure will not fail.
- *
+ * 被多个地方调用，一般情况是BG_GC所调用
+ * cpc被BG_GC所调用的时候一般是CP_SYNC
  */
 int write_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 {
@@ -1222,11 +1228,14 @@ int write_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 
 	trace_f2fs_write_checkpoint(sbi->sb, cpc->reason, "finish block_ops");
 
-	f2fs_flush_merged_bios(sbi); // 先提交sbi里面缓存的需要写的数据
+	f2fs_flush_merged_bios(sbi); // 先提交sbi中里面缓存merged_bio到磁盘
 
 	/*
 	 * this is the case of multiple fstrims without any changes
 	 * 这里指由trim触发的checkpoint
+	 * 如果由trim触发，会清理
+	 * 1. sit的entry
+	 * 2. prefree的segment
 	 * */
 	if (cpc->reason == CP_DISCARD && !is_sbi_flag_set(sbi, SBI_IS_DIRTY)) {
 		/*lint -save -e730 -e666*/
@@ -1234,8 +1243,8 @@ int write_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 		f2fs_bug_on(sbi, SIT_I(sbi)->dirty_sentries != 0);
 		f2fs_bug_on(sbi, prefree_segments(sbi) != 0);
 		/*lint -restore*/
-		flush_sit_entries(sbi, cpc); // flush sit entries to disk
-		clear_prefree_segments(sbi, cpc);
+		flush_sit_entries(sbi, cpc); // flush sit entries to disk 清理sit的entry
+		clear_prefree_segments(sbi, cpc); // 清除prefree的segment，即清理discard和dirty segment的标志位，然后执行discard
 		unblock_operations(sbi);
 		goto out;
 	}

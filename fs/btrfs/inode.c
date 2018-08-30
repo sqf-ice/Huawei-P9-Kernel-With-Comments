@@ -336,7 +336,7 @@ static noinline int add_async_extent(struct async_cow *cow,
 	async_extent->pages = pages;
 	async_extent->nr_pages = nr_pages;
 	async_extent->compress_type = compress_type;
-	list_add_tail(&async_extent->list, &cow->extents);
+	list_add_tail(&async_extent->list, &cow->extents); // 即 cow->extents的一个成员包含了pages
 	return 0;
 }
 
@@ -386,8 +386,8 @@ static noinline void compress_file_range(struct inode *inode,
 	u64 actual_end;
 	u64 isize = i_size_read(inode);
 	int ret = 0;
-	struct page **pages = NULL;
-	unsigned long nr_pages;
+	struct page **pages = NULL; // 准备写入的page
+	unsigned long nr_pages; // 需要写入的page
 	unsigned long nr_pages_ret = 0;
 	unsigned long total_compressed = 0;
 	unsigned long total_in = 0;
@@ -406,7 +406,7 @@ static noinline void compress_file_range(struct inode *inode,
 	actual_end = min_t(u64, isize, end + 1);
 again:
 	will_compress = 0;
-	nr_pages = (end >> PAGE_CACHE_SHIFT) - (start >> PAGE_CACHE_SHIFT) + 1;
+	nr_pages = (end >> PAGE_CACHE_SHIFT) - (start >> PAGE_CACHE_SHIFT) + 1; // 计算需要写入多少个页
 	nr_pages = min(nr_pages, (128 * 1024UL) / PAGE_CACHE_SIZE);
 
 	/*
@@ -422,7 +422,7 @@ again:
 	if (actual_end <= start)
 		goto cleanup_and_bail_uncompressed;
 
-	total_compressed = actual_end - start;
+	total_compressed = actual_end - start; // 压缩到文件末尾
 
 	/*
 	 * skip compression for a small file range(<=blocksize) that
@@ -455,7 +455,7 @@ again:
 	 */
 	if (inode_need_compress(inode)) {
 		WARN_ON(pages);
-		pages = kcalloc(nr_pages, sizeof(struct page *), GFP_NOFS);
+		pages = kcalloc(nr_pages, sizeof(struct page *), GFP_NOFS); // 保存page指针的指针数组
 		if (!pages) {
 			/* just bail out to the uncompressed code */
 			goto cont;
@@ -473,7 +473,7 @@ again:
 		 * If the compression fails for any reason, we set the pages
 		 * dirty again later on.
 		 */
-		extent_range_clear_dirty_for_io(inode, start, end);
+		extent_range_clear_dirty_for_io(inode, start, end); // 将inode下面的index=start~end的page，提取出来，清理掉脏的标志，然后释放掉
 		redirty = 1;
 		ret = btrfs_compress_pages(compress_type,
 					   inode->i_mapping, start,
@@ -483,16 +483,16 @@ again:
 					   &total_compressed,
 					   max_compressed);
 
-		if (!ret) {
+		if (!ret) { // 如果成功
 			unsigned long offset = total_compressed &
-				(PAGE_CACHE_SIZE - 1);
-			struct page *page = pages[nr_pages_ret - 1];
+				(PAGE_CACHE_SIZE - 1); // 就是  total_compressed
+			struct page *page = pages[nr_pages_ret - 1]; // 取最后一个page
 			char *kaddr;
 
 			/* zero the tail end of the last page, we might be
 			 * sending it down to disk
 			 */
-			if (offset) {
+			if (offset) { // 填充剩余空间
 				kaddr = kmap_atomic(page);
 				memset(kaddr + offset, 0,
 				       PAGE_CACHE_SIZE - offset);
@@ -587,7 +587,7 @@ cont:
 		 */
 		add_async_extent(async_cow, start, num_bytes,
 				 total_compressed, pages, nr_pages_ret,
-				 compress_type);
+				 compress_type); // 将pages的指针放到了async_cow->extents里面
 
 		if (start + num_bytes < end) {
 			start += num_bytes;
@@ -615,7 +615,7 @@ cleanup_and_bail_uncompressed:
 				 0, NULL, 0, BTRFS_COMPRESS_NONE);
 		*num_added += 1;
 	}
-
+	// 正常释放的情况pages不会被释放掉
 	return;
 
 free_pages_out:
@@ -661,16 +661,16 @@ static noinline void submit_compressed_extents(struct inode *inode,
 	int ret = 0;
 
 again:
-	while (!list_empty(&async_cow->extents)) {
+	while (!list_empty(&async_cow->extents)) { // 遍历extents的list
 		async_extent = list_entry(async_cow->extents.next,
-					  struct async_extent, list);
-		list_del(&async_extent->list);
+					  struct async_extent, list); // 从list获取一个extent
+		list_del(&async_extent->list); // 删除这个list上的对象
 
 		io_tree = &BTRFS_I(inode)->io_tree;
 
 retry:
 		/* did the compression code fall back to uncompressed IO? */
-		if (!async_extent->pages) {
+		if (!async_extent->pages) { // 如果这个pages不为空，处理写入的page
 			int page_started = 0;
 			unsigned long nr_written = 0;
 
@@ -1067,6 +1067,9 @@ static noinline void async_cow_start(struct btrfs_work *work)
 
 /*
  * work queue call back to submit previously compressed pages
+ *
+ * 提交一个bio
+ *
  */
 static noinline void async_cow_submit(struct btrfs_work *work)
 {
@@ -1074,7 +1077,7 @@ static noinline void async_cow_submit(struct btrfs_work *work)
 	struct btrfs_root *root;
 	unsigned long nr_pages;
 
-	async_cow = container_of(work, struct async_cow, work);
+	async_cow = container_of(work, struct async_cow, work); // 获得当前一个cow
 
 	root = async_cow->root;
 	nr_pages = (async_cow->end - async_cow->start + PAGE_CACHE_SIZE) >>
@@ -1086,7 +1089,7 @@ static noinline void async_cow_submit(struct btrfs_work *work)
 		wake_up(&root->fs_info->async_submit_wait);
 
 	if (async_cow->inode)
-		submit_compressed_extents(async_cow->inode, async_cow);
+		submit_compressed_extents(async_cow->inode, async_cow); // 提交一个submit bio
 }
 
 static noinline void async_cow_free(struct btrfs_work *work)

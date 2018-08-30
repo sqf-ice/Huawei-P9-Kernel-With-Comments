@@ -187,7 +187,7 @@ enum {
 #define DEF_IDLE_INTERVAL		0	/* 0 secs */
 
 struct cp_control {
-	int reason; // 触发gc的原因
+	int reason; // 触发gc的原因，一般是CP_SYNC
 	__u64 trim_start; // trim开始的位置
 	__u64 trim_end; // trim结束的位置
 	__u64 trim_minlen; // trim的最小长度

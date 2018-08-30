@@ -3276,7 +3276,7 @@ static noinline_for_stack int writepage_delalloc(struct inode *inode,
 			      unsigned long *nr_written)
 {
 	struct extent_io_tree *tree = epd->tree;
-	u64 page_end = delalloc_start + PAGE_CACHE_SIZE - 1;
+	u64 page_end = delalloc_start + PAGE_CACHE_SIZE - 1; // 相当于读 delalloc_start ~ PAGE_CACHE_SIZE-1的范围。就是一个页的范围
 	u64 nr_delalloc;
 	u64 delalloc_to_write = 0;
 	u64 delalloc_end = 0;
@@ -3296,6 +3296,7 @@ static noinline_for_stack int writepage_delalloc(struct inode *inode,
 			delalloc_start = delalloc_end + 1;
 			continue;
 		}
+		// 这个函数完成了压缩等步骤
 		ret = tree->ops->fill_delalloc(inode, page,
 					       delalloc_start,
 					       delalloc_end,
@@ -3568,6 +3569,8 @@ static int __extent_writepage(struct page *page, struct writeback_control *wbc,
 
 	set_page_extent_mapped(page);
 
+	// start=字节偏移4096*index
+	// nr_written=0
 	ret = writepage_delalloc(inode, page, wbc, epd, start, &nr_written);
 	if (ret == 1)
 		goto done_unlocked;

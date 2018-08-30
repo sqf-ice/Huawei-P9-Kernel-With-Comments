@@ -604,6 +604,11 @@ static void locate_dirty_segment(struct f2fs_sb_info *sbi, unsigned int segno)
 	mutex_unlock(&dirty_i->seglist_lock);
 }
 
+/*
+ * 处理物理设备的discard
+ * blkstart：segment entry block的起始位置
+ * blklen：需要处理segment entry block的长度
+ * */
 static int f2fs_issue_discard(struct f2fs_sb_info *sbi,
 				block_t blkstart, block_t blklen)
 {
@@ -615,14 +620,14 @@ static int f2fs_issue_discard(struct f2fs_sb_info *sbi,
 	int ret;
 
 	for (i = blkstart; i < blkstart + blklen; i++) {
-		se = get_seg_entry(sbi, GET_SEGNO(sbi, i));
-		offset = GET_BLKOFF_FROM_SEG0(sbi, i);
+		se = get_seg_entry(sbi, GET_SEGNO(sbi, i)); // 获取segment entry
+		offset = GET_BLKOFF_FROM_SEG0(sbi, i); // 计算距离segment 0的长度
 
 		if (!f2fs_test_and_set_bit(offset, se->discard_map))
-			sbi->discard_blks--;
+			sbi->discard_blks--; // 减少需要discard的blk的数目
 	}
 	trace_f2fs_issue_discard(sbi->sb, blkstart, blklen);
-	ret = blkdev_issue_discard(sbi->sb->s_bdev, start, len, GFP_NOFS, 0);
+	ret = blkdev_issue_discard(sbi->sb->s_bdev, start, len, GFP_NOFS, 0); // 执行物理设备的discard
 	return ret;
 }
 
@@ -743,29 +748,39 @@ static void set_prefree_as_free_segments(struct f2fs_sb_info *sbi)
 	mutex_unlock(&dirty_i->seglist_lock);
 }
 
+/*
+ * 清理prefree的segment
+ *
+ * prefree_segments() = DIRTY_I(sbi)->nr_dirty[PRE]
+ * 作用
+ *
+ * 1. 遍历prefree_map的每一项，然后清除该segment对应bit位不为dirty
+ * 2. 对于discard命令，就强制执行discard，对脏的seg_entry，刷写到磁盘中
+ * */
 void clear_prefree_segments(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 {
 	struct list_head *head = &(SM_I(sbi)->discard_list);
 	struct discard_entry *entry, *this;
 	struct dirty_seglist_info *dirty_i = DIRTY_I(sbi);
-	unsigned long *prefree_map = dirty_i->dirty_segmap[PRE];
+	unsigned long *prefree_map = dirty_i->dirty_segmap[PRE]; // 获取dirty的map
 	unsigned int start = 0, end = -1;
-	bool force = (cpc->reason == CP_DISCARD);
+	bool force = (cpc->reason == CP_DISCARD); // force = 1代表强制耍些，一般是trim导致的
 
 	mutex_lock(&dirty_i->seglist_lock);
 
+	// 开始遍历整个所有的segnment的dirty map
 	while (1) {
 		int i;
-		start = find_next_bit(prefree_map, MAIN_SEGS(sbi), end + 1);
-		if (start >= MAIN_SEGS(sbi))
+		start = find_next_bit(prefree_map, MAIN_SEGS(sbi), end + 1); // 找出对应的dirty segment number
+		if (start >= MAIN_SEGS(sbi)) // 超过main area所有的segment就退出
 			break;
 		end = find_next_zero_bit(prefree_map, MAIN_SEGS(sbi),
 								start + 1);
 
 		for (i = start; i < end; i++)
-			clear_bit(i, prefree_map);
+			clear_bit(i, prefree_map); // 清除标志位
 
-		dirty_i->nr_dirty[PRE] -= end - start;
+		dirty_i->nr_dirty[PRE] -= end - start; // 减少dirty的segment数目
 
 		if (force || !test_opt(sbi, DISCARD))
 			continue;
@@ -2059,7 +2074,7 @@ static void remove_sits_in_journal(struct f2fs_sb_info *sbi)
  * CP calls this function, which flushes SIT entries including sit_journal,
  * and moves prefree segs to free segs.
  *
- * 处理sit table的journal信息
+ * 处理sit table的journal信息，将他们刷写到磁盘中
  *
  */
 void flush_sit_entries(struct f2fs_sb_info *sbi, struct cp_control *cpc)
@@ -2103,7 +2118,7 @@ void flush_sit_entries(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 	 */
 	list_for_each_entry_safe(ses, tmp, head, set_list) {
 		struct page *page = NULL;
-		struct f2fs_sit_block *raw_sit = NULL;
+		struct f2fs_sit_block *raw_sit = NULL; // 包含多个segment entry
 		unsigned int start_segno = ses->start_segno; // 也是sit_entry的index
 		unsigned int end = min(start_segno + SIT_ENTRY_PER_BLOCK,
 						(unsigned long)MAIN_SEGS(sbi));
@@ -2115,8 +2130,8 @@ void flush_sit_entries(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 		if (to_journal) {
 			down_write(&curseg->journal_rwsem);
 		} else {
-			page = get_next_sit_page(sbi, start_segno);
-			raw_sit = page_address(page);
+			page = get_next_sit_page(sbi, start_segno); // 获取到f2fs_sit_block对应的page
+			raw_sit = page_address(page); // 将其转换为f2fs_sit_block的格式
 		}
 
 		/*
