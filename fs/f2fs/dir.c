@@ -240,7 +240,7 @@ static struct f2fs_dir_entry *find_in_level(struct inode *dir,
 	nblock = bucket_blocks(level);
 
 	bidx = dir_block_index(level, F2FS_I(dir)->i_dir_level,
-					le32_to_cpu(namehash) % nbucket);
+					le32_to_cpu(namehash) % nbucket); // 计算一下保存在dir block的block区域位置
 	end_block = bidx + nblock;
 
 	for (; bidx < end_block; bidx++) {
@@ -594,6 +594,9 @@ void f2fs_update_dentry(nid_t ino, umode_t mode, struct f2fs_dentry_ptr *d,
 	}
 }
 
+/*
+ * 建立inode和dentry的联系
+ * */
 int __f2fs_do_add_link(struct inode *dir, struct fscrypt_name *fname,
 				struct inode *inode, nid_t ino, umode_t mode)
 {
@@ -611,8 +614,8 @@ int __f2fs_do_add_link(struct inode *dir, struct fscrypt_name *fname,
 	int slots;
 	int err = 0;
 
-	new_name.name = fname_name(fname);
-	new_name.len = fname_len(fname);
+	new_name.name = fname_name(fname); // dentry的名字
+	new_name.len = fname_len(fname); // dentry名字长度
 
 	if (f2fs_has_inline_dentry(dir)) {
 		err = f2fs_add_inline_entry(dir, &new_name, fname->usr_fname,
@@ -624,8 +627,8 @@ int __f2fs_do_add_link(struct inode *dir, struct fscrypt_name *fname,
 	}
 
 	level = 0;
-	slots = GET_DENTRY_SLOTS(new_name.len);
-	dentry_hash = f2fs_dentry_hash(&new_name);
+	slots = GET_DENTRY_SLOTS(new_name.len); // 计算这个名字需要多长的slots去保存
+	dentry_hash = f2fs_dentry_hash(&new_name); // 根据名字计算hash
 
 	current_depth = F2FS_I(dir)->i_current_depth;
 	if (F2FS_I(dir)->chash == dentry_hash) {
@@ -714,6 +717,11 @@ out:
 /*
  * Caller should grab and release a rwsem by calling f2fs_lock_op() and
  * f2fs_unlock_op().
+ *
+ * dir: 目标dentry对应的inode
+ * name: dentry的名字
+ * inode: 准备建立联系的inode
+ *
  */
 int __f2fs_add_link(struct inode *dir, const struct qstr *name,
 				struct inode *inode, nid_t ino, umode_t mode)
@@ -761,8 +769,8 @@ void f2fs_drop_nlink(struct inode *dir, struct inode *inode, struct page *page)
 
 	down_write(&F2FS_I(inode)->i_sem);
 
-	if (S_ISDIR(inode->i_mode)) {
-		drop_nlink(dir);
+	if (S_ISDIR(inode->i_mode)) { // 如果这个文件夹
+		drop_nlink(dir); // 对这个inode的连接数-1
 		if (page)
 			update_inode(dir, page);
 		else
@@ -803,27 +811,31 @@ void f2fs_delete_entry(struct f2fs_dir_entry *dentry, struct page *page,
 		return f2fs_delete_inline_entry(dentry, page, dir, inode);
 
 	lock_page(page);
-	f2fs_wait_on_page_writeback(page, DATA, true);
+	f2fs_wait_on_page_writeback(page, DATA, true); // 更新这个page到最新
 
 	dentry_blk = page_address(page);
-	bit_pos = dentry - dentry_blk->dentry;
+	bit_pos = dentry - dentry_blk->dentry; // 计算目标dentry的信息位于f2fs_dentry_block的位置
+
 	for (i = 0; i < slots; i++)
-		clear_bit_le(bit_pos + i, &dentry_blk->dentry_bitmap);
+		clear_bit_le(bit_pos + i, &dentry_blk->dentry_bitmap); // 清除这个dentry的有效性
 
 	/* Let's check and deallocate this dentry page */
+	/* 计算清除完目标dentry后，inode是否含有其他dentry，如果没有其他dentry，代表这个inode也可以删除了 */
 	bit_pos = find_next_bit_le(&dentry_blk->dentry_bitmap,
 			NR_DENTRY_IN_BLOCK,
 			0);
+
 	kunmap(page); /* kunmap - pair of f2fs_find_entry */
+
 	set_page_dirty(page);
 
 	dir->i_ctime = dir->i_mtime = CURRENT_TIME;
 
 	if (inode)
-		f2fs_drop_nlink(dir, inode, NULL);
+		f2fs_drop_nlink(dir, inode, NULL); // 减去这个inode的连接数
 
 	if (bit_pos == NR_DENTRY_IN_BLOCK &&
-			!truncate_hole(dir, page->index, page->index + 1)) {
+			!truncate_hole(dir, page->index, page->index + 1)) { // 表示这个inode已经没有其他dentry了，直接truncate掉
 		clear_page_dirty_for_io(page);
 		ClearPagePrivate(page);
 		ClearPageUptodate(page);

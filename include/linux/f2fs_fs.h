@@ -526,10 +526,14 @@ struct f2fs_dir_entry {
 
 /* 4KB-sized directory entry block
  * 设计上同样满足了一个block大小为4kb的设计原则
+ *
+ * 1. f2fs的目录也是由f2fs_inode进行保存，i_addr地址保存的不是一般数据，而是目录项数据，即下面的f2fs_dentry_block
+ * 2. f2fs_dentry_block包存了多个dentry，每个dentry的文件长度不一样，因此使用dentry_bitmap+filename，通过filename二维数组，分段保存文件名称。
+ * 	  然后用dentry_bitmap确定这个dentry在dentry block的范围。
  * */
 struct f2fs_dentry_block {
 	/* validity bitmap for directory entries in each block */
-	__u8 dentry_bitmap[SIZE_OF_DENTRY_BITMAP]; // 这里存放的不是普通数据，而是目录项的信息(f2fs_dir_entry)，因此这里bitmap是表示目录项是否有效
+	__u8 dentry_bitmap[SIZE_OF_DENTRY_BITMAP]; // 因此这里bitmap是表示目录项是否有效，大小为27个字节，27*8=216,刚好可以表示保存214个entry每一个entry是否有效
 	__u8 reserved[SIZE_OF_RESERVED];
 	struct f2fs_dir_entry dentry[NR_DENTRY_IN_BLOCK]; // 被这个block管理的dentry项
 	__u8 filename[NR_DENTRY_IN_BLOCK][F2FS_SLOT_LEN]; // 文件名数组

@@ -211,7 +211,7 @@ struct sit_info {
 	unsigned int dirty_sentries;		/* # of dirty sentries */
 	unsigned int sents_per_block;		/* # of SIT entries per block */
 	struct mutex sentry_lock;		/* to protect SIT cache */
-	struct seg_entry *sentries;		/* SIT segment-level cache */
+	struct seg_entry *sentries;		/* SIT segment-level cache segment entry数组，每一个在main area的segment都对应一个entry */
 	struct sec_entry *sec_entries;		/* SIT section-level cache */
 
 	/* for cost-benefit algorithm in cleaning procedure */

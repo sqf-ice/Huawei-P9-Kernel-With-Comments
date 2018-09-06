@@ -384,6 +384,14 @@ err_out:
 	return ERR_PTR(err);
 }
 
+/*
+ *
+ * f2fs
+ *
+ * dir: 保存该dentry的f2fs_inode
+ * dentry：目标文件dentry
+ *
+ * */
 static int f2fs_unlink(struct inode *dir, struct dentry *dentry)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(dir);
@@ -394,6 +402,7 @@ static int f2fs_unlink(struct inode *dir, struct dentry *dentry)
 
 	trace_f2fs_unlink_enter(dir, dentry);
 
+	// 一般不会进入这个选项
 	if (F2FS_I(inode)->i_flags & FS_UNRM_FL) {
 		struct page *ipage;
 		struct f2fs_inode *fi;
@@ -468,7 +477,7 @@ static int f2fs_unlink(struct inode *dir, struct dentry *dentry)
 				current->parent->parent->group_leader->comm);
 	}
 
-	de = f2fs_find_entry(dir, &dentry->d_name, &page, NULL);
+	de = f2fs_find_entry(dir, &dentry->d_name, &page, NULL); // 根据dentry name从inode找到该dentry信息所在的f2fs_dentry_block
 	if (IS_ERR(de)) {
 		err = (int)PTR_ERR(de);
 		goto fail;
@@ -478,13 +487,29 @@ static int f2fs_unlink(struct inode *dir, struct dentry *dentry)
 	f2fs_balance_fs(sbi, true);
 
 	f2fs_lock_op(sbi);
-	err = acquire_orphan_inode(sbi);
+	/*
+	 * orphan inode的出现原因是，删除的步骤一般是:
+	 * 1. 对这个inode的连接数是0
+	 * 2. 删除这个inode对应的数据块
+	 *
+	 * 但是如果在第一步的时候断电了，那么就会出现orphan inode的状况
+	 * */
+	err = acquire_orphan_inode(sbi); // 对orphan inode的统计数目+1，在数据块完全删除后再-1
 	if (err) {
 		f2fs_unlock_op(sbi);
 		f2fs_dentry_kunmap(dir, page);
 		f2fs_put_page(page, 0);
 		goto fail;
 	}
+	/*
+	 * de: f2fs_dir_entry
+	 * page: f2fs_dentry_block
+	 * dir: 保存该dentry的f2fs_inode
+	 * inode: 目标文件对应的inode
+	 *
+	 * 删除entry
+	 *
+	 * */
 	f2fs_delete_entry(de, page, dir, inode);
 	f2fs_unlock_op(sbi);
 

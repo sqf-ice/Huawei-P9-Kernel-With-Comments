@@ -906,12 +906,16 @@ void refresh_sit_entry(struct f2fs_sb_info *sbi, block_t old, block_t new)
 	locate_dirty_segment(sbi, GET_SEGNO(sbi, new));
 }
 
+/*
+ * 是一个block地址无效
+ * */
 void invalidate_blocks(struct f2fs_sb_info *sbi, block_t addr)
 {
-	unsigned int segno = GET_SEGNO(sbi, addr);
+	unsigned int segno = GET_SEGNO(sbi, addr); // 获取这个block所在的segment
 	struct sit_info *sit_i = SIT_I(sbi);
 
 	f2fs_bug_on(sbi, addr == NULL_ADDR);
+
 	if (addr == NEW_ADDR)
 		return;
 
@@ -1473,6 +1477,15 @@ void allocate_data_block(struct f2fs_sb_info *sbi, struct page *page,
 	 * __add_sum_entry should be resided under the curseg_mutex
 	 * because, this function updates a summary entry in the
 	 * current summary block.
+	 *
+	 * 每一次分配一个新的block，同时也需要更新一个f2fs_summary，它作用是告诉系统cur_seg这个block是分配了给谁，
+	 * node number是什么，是对应的node里面的第几个block，因此就记录了nid以及ofs_in_node，version的作用是恢复数据的时候使用
+	 * 一个例子： gc是根据segment为单位进行gc
+	 * 1. 首先选择一个segno作为gc的对象，同时也得到这个segno对应的f2fs_summary_block
+	 * 2. 遍历这个segno对应的segment的所用的block
+	 * 3. 每一个block根据f2fs_summary_block里面的f2fs_summary的nid和ofs_in_node知道这个block是属于哪个node，以及node里面的第几个块
+	 * 4. 然后将这个块读取出来，迁移到另外一个segment中
+	 *
 	 */
 	__add_sum_entry(sbi, type, sum); // 根据next_blkoff的，计算得到下一个segment的地址，然后将这个summary复制到这个seg_addr中
 
@@ -1486,6 +1499,8 @@ void allocate_data_block(struct f2fs_sb_info *sbi, struct page *page,
 	 * SIT information should be updated before segment allocation,
 	 * since SSR needs latest valid block information.
 	 * old_blkaddr如果是新创建模式，就是NEW_ADDR
+	 * 因为分配了一个新的块，所以sit要更新一些meta data，如果valid block的数目等
+	 * 在checkpoint的时候会用于更新到journal中，用于数据保护
 	 */
 	refresh_sit_entry(sbi, old_blkaddr, *new_blkaddr); // 更新old_blkaddr和对应new_blkaddr对应的sit table
 
@@ -1682,7 +1697,7 @@ static int read_compacted_summaries(struct f2fs_sb_info *sbi)
 	block_t start;
 	int i, j, offset;
 
-	start = start_sum_block(sbi);
+	start = start_sum_block(sbi); // 找到sum start block
 
 	page = get_meta_page(sbi, start++);
 	kaddr = (unsigned char *)page_address(page);
@@ -1818,7 +1833,10 @@ static int restore_curseg_summaries(struct f2fs_sb_info *sbi)
 			ra_meta_pages(sbi, start_sum_block(sbi), npages,
 							META_CP, true);
 
-		/* restore for compacted data summary */
+		/*
+		 * restore for compacted data summary
+		 * 回复对应的数据
+		 * */
 		if (read_compacted_summaries(sbi))
 			return -EINVAL;
 		type = CURSEG_HOT_NODE;
@@ -2188,6 +2206,10 @@ out:
 	set_prefree_as_free_segments(sbi);
 }
 
+
+/*
+ * 创建sbi->sminfo->sit_info去管理segment information table去管理所有的segment
+ * */
 static int build_sit_info(struct f2fs_sb_info *sbi)
 {
 	struct f2fs_super_block *raw_super = F2FS_RAW_SUPER(sbi);
@@ -2204,17 +2226,17 @@ static int build_sit_info(struct f2fs_sb_info *sbi)
 
 	SM_I(sbi)->sit_info = sit_i;
 
-	sit_i->sentries = f2fs_kvzalloc(MAIN_SEGS(sbi) * sizeof(struct seg_entry), GFP_KERNEL); // 创建segment entries缓存
+	sit_i->sentries = f2fs_kvzalloc(MAIN_SEGS(sbi) * sizeof(struct seg_entry), GFP_KERNEL); // 创建根据main segment的个数，创建segment entries数组
 
 	if (!sit_i->sentries)
 		return -ENOMEM;
 
-	bitmap_size = f2fs_bitmap_size(MAIN_SEGS(sbi));  //单位字节
-	sit_i->dirty_sentries_bitmap = f2fs_kvzalloc(bitmap_size, GFP_KERNEL);
+	bitmap_size = f2fs_bitmap_size(MAIN_SEGS(sbi));  //根据main_segment的个数，分配对应的bit空间（这里使用了64bit的Long型作为载体）
+	sit_i->dirty_sentries_bitmap = f2fs_kvzalloc(bitmap_size, GFP_KERNEL); // 分配空间，初始化为0，用于标记seg entries是否为脏
 	if (!sit_i->dirty_sentries_bitmap)
 		return -ENOMEM;
 
-	for (start = 0; start < MAIN_SEGS(sbi); start++) { // 给main_area区域的segment建立实例
+	for (start = 0; start < MAIN_SEGS(sbi); start++) { // 遍历整个main_segment区域，然后给每一个segment初始化一个entry
 		sit_i->sentries[start].cur_valid_map           // 每一个segment管理64个map
 			= kzalloc(SIT_VBLOCK_MAP_SIZE, GFP_KERNEL);
 		sit_i->sentries[start].ckpt_valid_map
@@ -2243,8 +2265,8 @@ static int build_sit_info(struct f2fs_sb_info *sbi)
 
 	/* setup SIT bitmap from ckeckpoint pack */
 	bitmap_size = __bitmap_size(sbi, SIT_BITMAP);
-	src_bitmap = __bitmap_ptr(sbi, SIT_BITMAP);
 
+	src_bitmap = __bitmap_ptr(sbi, SIT_BITMAP);
 	dst_bitmap = kmemdup(src_bitmap, bitmap_size, GFP_KERNEL);
 	if (!dst_bitmap)
 		return -ENOMEM;
@@ -2292,13 +2314,16 @@ static int build_free_segmap(struct f2fs_sb_info *sbi)
 	memset(free_i->free_secmap, 0xff, sec_bitmap_size); // 设置所有的section为dirty
 
 	/* init free segmap information */
-	free_i->start_segno = GET_SEGNO_FROM_SEG0(sbi, MAIN_BLKADDR(sbi));
+	free_i->start_segno = GET_SEGNO_FROM_SEG0(sbi, MAIN_BLKADDR(sbi)); // 为main area第一个block所在segno
 	free_i->free_segments = 0;
 	free_i->free_sections = 0;
 	spin_lock_init(&free_i->segmap_lock);
 	return 0;
 }
 
+/*
+ * 创建curseg
+ * */
 static int build_curseg(struct f2fs_sb_info *sbi)
 {
 	struct curseg_info *array;
@@ -2319,14 +2344,14 @@ static int build_curseg(struct f2fs_sb_info *sbi)
 		array[i].journal = kzalloc(sizeof(struct f2fs_journal), GFP_KERNEL); // 初始化f2fs_journal
 		if (!array[i].journal)
 			return -ENOMEM;
-		array[i].segno = NULL_SEGNO; // 当前的segment number
+		array[i].segno = NULL_SEGNO;
 		array[i].next_blkoff = 0;
 	}
-	return restore_curseg_summaries(sbi);
+	return restore_curseg_summaries(sbi); // 用于读取一些meta数据进入变量中
 }
 
 /*
- * 构建所有sit entry
+ * 恢复所有sit entry数据
  * */
 static void build_sit_entries(struct f2fs_sb_info *sbi)
 {
@@ -2490,6 +2515,11 @@ static void init_min_max_mtime(struct f2fs_sb_info *sbi)
 	mutex_unlock(&sit_i->sentry_lock);
 }
 
+
+/*
+ * 创建sbi的sbi->sm_info的变量
+ * 然后初始化sbi->sm_info
+ * */
 int build_segment_manager(struct f2fs_sb_info *sbi)
 {
 	struct f2fs_super_block *raw_super = F2FS_RAW_SUPER(sbi);
@@ -2497,7 +2527,7 @@ int build_segment_manager(struct f2fs_sb_info *sbi)
 	struct f2fs_sm_info *sm_info;
 	int err;
 
-	sm_info = kzalloc(sizeof(struct f2fs_sm_info), GFP_KERNEL); // 分配老婆目光看哦阿美
+	sm_info = kzalloc(sizeof(struct f2fs_sm_info), GFP_KERNEL); // 分配空间
 	if (!sm_info)
 		return -ENOMEM;
 
@@ -2506,18 +2536,19 @@ int build_segment_manager(struct f2fs_sb_info *sbi)
 	 * segment的块起始点，大小之类的
 	 * */
 	sbi->sm_info = sm_info;
-	sm_info->seg0_blkaddr = le32_to_cpu(raw_super->segment0_blkaddr);
-	sm_info->main_blkaddr = le32_to_cpu(raw_super->main_blkaddr);
-	sm_info->segment_count = le32_to_cpu(raw_super->segment_count);
-	sm_info->reserved_segments = le32_to_cpu(ckpt->rsvd_segment_count);
-	sm_info->ovp_segments = le32_to_cpu(ckpt->overprov_segment_count);
-	sm_info->main_segments = le32_to_cpu(raw_super->segment_count_main);
-	sm_info->ssa_blkaddr = le32_to_cpu(raw_super->ssa_blkaddr);
+
+	sm_info->seg0_blkaddr = le32_to_cpu(raw_super->segment0_blkaddr); // 第一个segnment的地址
+	sm_info->main_blkaddr = le32_to_cpu(raw_super->main_blkaddr); // main区域的起始地址
+	sm_info->segment_count = le32_to_cpu(raw_super->segment_count); //  一共segnment的个数
+	sm_info->reserved_segments = le32_to_cpu(ckpt->rsvd_segment_count); // 保留的segment的个数
+	sm_info->ovp_segments = le32_to_cpu(ckpt->overprov_segment_count); //
+	sm_info->main_segments = le32_to_cpu(raw_super->segment_count_main); // main area的segment的个数
+	sm_info->ssa_blkaddr = le32_to_cpu(raw_super->ssa_blkaddr); // Segment summary area的起始block
 	sm_info->rec_prefree_segments = sm_info->main_segments *
 					DEF_RECLAIM_PREFREE_SEGMENTS / 100;
-	sm_info->ipu_policy = 1 << F2FS_IPU_FSYNC;
+	sm_info->ipu_policy = 1 << F2FS_IPU_FSYNC; // IPU fsync
 	sm_info->min_ipu_util = DEF_MIN_IPU_UTIL;
-	sm_info->min_fsync_blocks = DEF_MIN_FSYNC_BLOCKS;
+	sm_info->min_fsync_blocks = DEF_MIN_FSYNC_BLOCKS; // 少于20个块就会执行 in place update
 
 	INIT_LIST_HEAD(&sm_info->discard_list);
 	sm_info->nr_discards = 0;
@@ -2525,7 +2556,7 @@ int build_segment_manager(struct f2fs_sb_info *sbi)
 
 	sm_info->trim_sections = DEF_BATCHED_TRIM_SECTIONS;
 
-	INIT_LIST_HEAD(&sm_info->sit_entry_set);
+	INIT_LIST_HEAD(&sm_info->sit_entry_set); // sit entry 的list结构
 
 	if (test_opt(sbi, FLUSH_MERGE) && !f2fs_readonly(sbi->sb)) {
 		err = create_flush_cmd_control(sbi);
@@ -2547,6 +2578,7 @@ int build_segment_manager(struct f2fs_sb_info *sbi)
 	build_sit_entries(sbi); //恢复所有的segment_entry和section_segment
 
 	init_free_segmap(sbi); // 恢复所有free_segmap和free_secmap
+
 	err = build_dirty_segmap(sbi); // 构建dirty_seglist_info
 	if (err)
 		return err;

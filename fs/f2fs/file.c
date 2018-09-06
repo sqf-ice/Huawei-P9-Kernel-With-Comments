@@ -481,6 +481,10 @@ static int f2fs_file_open(struct inode *inode, struct file *filp)
 	return ret;
 }
 
+
+/*
+ * 清除一定范围的data block
+ * */
 int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(dn->inode);
@@ -489,16 +493,16 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 	__le32 *addr;
 
 	raw_node = F2FS_NODE(dn->node_page);
-	addr = blkaddr_in_node(raw_node) + ofs;
+	addr = blkaddr_in_node(raw_node) + ofs; // 获得需要清除的block的起始地址
 
 	for (; count > 0; count--, addr++, dn->ofs_in_node++) {
 		block_t blkaddr = le32_to_cpu(*addr);
 		if (blkaddr == NULL_ADDR)
 			continue;
 
-		dn->data_blkaddr = NULL_ADDR;
+		dn->data_blkaddr = NULL_ADDR; // 设置blk为NULL_ADDR
 		set_data_blkaddr(dn);
-		invalidate_blocks(sbi, blkaddr);
+		invalidate_blocks(sbi, blkaddr); // 使这个块无效
 		if (dn->ofs_in_node == 0 && IS_INODE(dn->node_page))
 			clear_inode_flag(F2FS_I(dn->inode),
 						FI_FIRST_BLOCK_WRITTEN);
@@ -513,8 +517,8 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 		 */
 		fofs = start_bidx_of_node(ofs_of_node(dn->node_page),
 							dn->inode) + ofs;
-		f2fs_update_extent_cache_range(dn, fofs, 0, len);
-		dec_valid_block_count(sbi, dn->inode, nr_free);
+		f2fs_update_extent_cache_range(dn, fofs, 0, len); // 更新extent tree的cache
+		dec_valid_block_count(sbi, dn->inode, nr_free); // 减少valid block的数目
 		sync_inode_page(dn);
 	}
 	dn->ofs_in_node = ofs;

@@ -849,7 +849,7 @@ struct f2fs_sb_info {
 	unsigned long last_time[MAX_TIME];	/* to store time in jiffies */
 	long interval_time[MAX_TIME];		/* to store thresholds */
 
-	struct inode_management im[MAX_INO_ENTRY];      /* manage inode cache */
+	struct inode_management im[MAX_INO_ENTRY];      /*  用于管理缓存的Inode数据  manage inode cache */
 
 	/* for orphan inode, use 0'th array */
 	unsigned int max_orphans;		/* max orphan inodes */
@@ -1994,6 +1994,12 @@ void f2fs_delete_entry(struct f2fs_dir_entry *, struct page *, struct inode *,
 int f2fs_do_tmpfile(struct inode *, struct inode *);
 bool f2fs_empty_dir(struct inode *);
 
+/*
+ * dentry: 目标文件的dentry
+ * inode: 刚刚新创建的Inode
+ *
+ * 这个函数用于建立Inode和dentry的联系
+ * */
 static inline int f2fs_add_link(struct dentry *dentry, struct inode *inode)
 {
 	return __f2fs_add_link(d_inode(dentry->d_parent), &dentry->d_name,
